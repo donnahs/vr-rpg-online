@@ -1,0 +1,14 @@
+{
+  "name": "vr-rpg-online",
+  "version": "0.1.0",
+  "description": "VR multiplayer RPG using Three.js + WebXR + WebSocket",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "check": "node --check src/game.js && node --check src/server.js && node --check public/app.js"
+  },
+  "dependencies": {
+    "three": "^0.160.1",
+    "ws": "^8.21.0"
+  }
+}
