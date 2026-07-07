@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VR RPG Online — Browser Dungeon Crawler</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      background: #0a0a0a;
+      color: #eee;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      line-height: 1.6;
+    }
+    .container { max-width: 960px; margin: 0 auto; padding: 0 20px; }
+    header {
+      text-align: center;
+      padding: 60px 20px 40px;
+      background: radial-gradient(ellipse at top, #1a1a2e 0%, #0a0a0a 70%);
+    }
+    h1 { font-size: 3rem; margin-bottom: 8px; background: linear-gradient(90deg, #00d4ff, #9b59b6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .tagline { font-size: 1.2rem; color: #aaa; margin-bottom: 24px; }
+    .play-btn {
+      display: inline-block;
+      background: linear-gradient(135deg, #00d4ff, #0099cc);
+      color: #fff;
+      padding: 16px 40px;
+      border-radius: 12px;
+      font-size: 1.1rem;
+      font-weight: bold;
+      text-decoration: none;
+      transition: transform 0.2s, box-shadow 0.2s;
+      box-shadow: 0 4px 20px rgba(0, 212, 255, 0.3);
+    }
+    .play-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 30px rgba(0, 212, 255, 0.4); }
+    .badges { margin-top: 24px; }
+    .badge {
+      display: inline-block;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.15);
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      color: #ccc;
+      margin: 4px;
+    }
+    section { padding: 40px 0; border-top: 1px solid rgba(255,255,255,0.05); }
+    h2 { font-size: 1.8rem; margin-bottom: 16px; color: #fff; }
+    .features {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 20px;
+      margin-top: 20px;
+    }
+    .feature-card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+    }
+    .feature-icon { font-size: 2rem; margin-bottom: 8px; }
+    .feature-card h3 { font-size: 1.1rem; margin-bottom: 8px; color: #fff; }
+    .feature-card p { font-size: 0.9rem; color: #999; }
+    .screenshots {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      margin-top: 20px;
+    }
+    .screenshot {
+      background: #111;
+      border-radius: 10px;
+      height: 180px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(255,255,255,0.08);
+      color: #666;
+      font-size: 0.9rem;
+    }
+    .schedule {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-top: 20px;
+    }
+    .schedule-card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      padding: 16px;
+    }
+    .schedule-card .day { color: #00d4ff; font-weight: bold; font-size: 0.9rem; }
+    .schedule-card .time { color: #aaa; font-size: 0.85rem; }
+    footer {
+      text-align: center;
+      padding: 40px 20px;
+      color: #666;
+      font-size: 0.85rem;
+      border-top: 1px solid rgba(255,255,255,0.05);
+    }
+    a { color: #00d4ff; }
+    .cta-bar {
+      background: rgba(0, 212, 255, 0.05);
+      border: 1px solid rgba(0, 212, 255, 0.2);
+      border-radius: 12px;
+      padding: 24px;
+      text-align: center;
+      margin-top: 20px;
+    }
+    .cta-bar p { margin-bottom: 12px; color: #ccc; }
+    @media (max-width: 600px) {
+      h1 { font-size: 2rem; }
+      .features { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="container">
+    <h1>VR RPG Online</h1>
+    <p class="tagline">Multiplayer dungeon crawler in your browser. Play on desktop, mobile, or VR headset.</p>
+    <a href="/" class="play-btn">🎮 Play Now — It's Free</a>
+    <div class="badges">
+      <span class="badge">⚔️ Melee Combat</span>
+      <span class="badge">🕶️ WebXR VR</span>
+      <span class="badge">🏗️ Procedural Dungeons</span>
+      <span class="badge">👥 Multiplayer</span>
+      <span class="badge">📱 Mobile Touch</span>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="container">
+    <h2>🖼️ Screenshots</h2>
+    <div class="screenshots">
+      <div class="screenshot">[Procedural Dungeon Screenshot]</div>
+      <div class="screenshot">[VR Gameplay Screenshot]</div>
+      <div class="screenshot">[Combat Screenshot]</div>
+      <div class="screenshot">[Multiplayer Lobby Screenshot]</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <h2>⚡ Features</h2>
+    <div class="features">
+      <div class="feature-card">
+        <div class="feature-icon">🏗️</div>
+        <h3>Procedural Dungeons</h3>
+        <p>Every run is different. 5-8 connected rooms with enemies, loot, and secrets.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🕶️</div>
+        <h3>WebXR VR Support</h3>
+        <p>Play in your browser with any VR headset. No download needed.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">👥</div>
+        <h3>Multiplayer</h3>
+        <p>Team up or compete with friends in real-time dungeon runs.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">⚔️</div>
+        <h3>Skill-Based Combat</h3>
+        <p>Melee attacks, dodging, potions, and equipment upgrades.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📱</div>
+        <h3>Cross-Platform</h3>
+        <p>Desktop (WASD), mobile (touch), or VR (controllers). One game, all devices.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🤖</div>
+        <h3>AI-Powered Development</h3>
+        <p>Built with AI assistance for rapid iteration and unique content.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <h2>📺 Stream Schedule</h2>
+    <p style="color:#999;margin-bottom:8px;">Watch live development and gameplay on Twitch/YouTube.</p>
+    <div class="schedule">
+      <div class="schedule-card">
+        <div class="day">Monday</div>
+        <div class="time">7:00 PM — 9:00 PM AWST</div>
+        <div style="color:#999;font-size:0.8rem;margin-top:4px;">🔨 Dev Stream — Procedural Generation</div>
+      </div>
+      <div class="schedule-card">
+        <div class="day">Wednesday</div>
+        <div class="time">7:00 PM — 9:00 PM AWST</div>
+        <div style="color:#999;font-size:0.8rem;margin-top:4px;">🕶️ VR Gameplay + Testing</div>
+      </div>
+      <div class="schedule-card">
+        <div class="day">Friday</div>
+        <div class="time">7:00 PM — 10:00 PM AWST</div>
+        <div style="color:#999;font-size:0.8rem;margin-top:4px;">🎮 Community Dungeon Runs</div>
+      </div>
+    </div>
+    <div class="cta-bar">
+      <p>💬 Join the community — Follow for build updates, behind-the-scenes, and giveaways.</p>
+      <a href="#" class="play-btn" style="padding:12px 28px;font-size:0.95rem;">Follow on Twitch</a>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <h2>🛠️ Tech Stack</h2>
+    <p style="color:#999;">Built with modern web tech for maximum reach:</p>
+    <ul style="color:#ccc;margin-top:12px;margin-left:20px;">
+      <li><strong>Three.js</strong> — 3D rendering engine</li>
+      <li><strong>WebXR</strong> — VR headset support (no app store needed)</li>
+      <li><strong>WebSocket</strong> — Real-time multiplayer sync</li>
+      <li><strong>Node.js</strong> — Authoritative game server</li>
+      <li><strong>AI-Assisted Development</strong> — Rapid prototyping with LLMs</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <p>Made with 🤖 AI assistance by <a href="mailto:mattpdonnelly@yahoo.com.au">Matt Donnelly</a> | Perth, Australia</p>
+    <p style="margin-top:8px;font-size:0.75rem;color:#555;">© 2026 VR RPG Online. Open source under MIT License.</p>
+  </div>
+</footer>
+
+</body>
+</html>

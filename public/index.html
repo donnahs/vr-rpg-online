@@ -117,6 +117,25 @@
     line-height: 1.6;
   }
   .events div { opacity: 0.8; }
+  .highlights {
+    flex: 1;
+    background: rgba(0,0,0,0.5);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 0.8rem;
+    max-height: 120px;
+    overflow: hidden;
+    line-height: 1.6;
+    border-left: 3px solid #00d4ff;
+  }
+  .highlight-title {
+    font-weight: bold;
+    color: #00d4ff;
+    margin-bottom: 4px;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
   .crosshair {
     position: absolute; top: 50%; left: 50%;
     width: 8px; height: 8px;
@@ -148,9 +167,16 @@
     <h1>VR RPG Online</h1>
     <p>Multiplayer dungeon crawler in your browser.<br>Works on desktop, mobile, and VR headsets.</p>
     <input type="text" id="name-input" placeholder="Your hero name" maxlength="18" value="Hero">
+    <div style="margin:12px 0;">
+      <select id="class-select" style="background:#111;border:1px solid #444;color:#fff;padding:8px 12px;border-radius:6px;width:100%;">
+        <option value="warrior">⚔️ Warrior — Tank / Melee</option>
+        <option value="rogue">🗡️ Rogue — DPS / Stealth</option>
+        <option value="mage">🔮 Mage — Ranged / AOE</option>
+      </select>
+    </div>
     <button id="join-btn">Enter Dungeon</button>
     <p style="margin-top:12px;font-size:0.75rem;color:#666;">
-      WASD to move • Mouse to look • Click to attack • E to pickup
+      WASD to move • Mouse to look • Click to attack • 1/2/3 for skills • E to pickup
     </p>
   </div>
 </div>
@@ -158,17 +184,29 @@
 <div id="hud">
   <div class="top-bar">
     <div class="stats" id="player-stats" style="display:none;">
-      <div><strong id="p-name">Hero</strong> <span id="p-level">Lv.1</span></div>
-      <div>HP: <span id="p-hp">100</span>/<span id="p-maxhp">100</span></div>
+      <div><strong id="p-name">Hero</strong> <span id="p-class">Warrior</span> <span id="p-level">Lv.1</span></div>
+      <div>HP: <span id="p-hp">100</span>/<span id="p-maxhp">100</span> | Mana: <span id="p-mana">30</span>/<span id="p-maxmana">30</span></div>
       <div class="hp-bar"><div class="hp-fill" id="hp-bar" style="width:100%"></div></div>
-      <div>Gold: <span id="p-gold">0</span> | XP: <span id="p-xp">0</span></div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:4px;">
+        <div style="flex:1;background:rgba(255,255,255,0.1);border-radius:4px;height:6px;overflow:hidden;">
+          <div id="mana-bar" style="background:#3498db;height:100%;width:100%;transition:width 0.3s;"></div>
+        </div>
+      </div>
+      <div>STR: <span id="p-str">8</span> | DEX: <span id="p-dex">4</span> | INT: <span id="p-int">3</span> | VIT: <span id="p-vit">7</span></div>
+      <div id="equipment-bar" style="margin-top:4px;font-size:0.75rem;color:#aaa;">
+        ⚔️ <span id="eq-weapon">None</span> | 🛡️ <span id="eq-armor">None</span> | 💍 <span id="eq-ring">None</span>
+      </div>
+      <div>Gold: <span id="p-gold">0</span> | XP: <span id="p-xp">0</span> | Kills: <span id="p-kills">0</span></div>
+      <div id="skills-bar" style="display:flex;gap:6px;margin-top:6px;"></div>
     </div>
     <button class="vr-btn" id="vr-btn" disabled>Enter VR</button>
   </div>
   <div class="crosshair"></div>
-  <div class="controls-hint">WASD = move | Mouse = look | Click = attack | E = pickup</div>
+  <div class="controls-hint">WASD = move | Mouse = look | Click = attack | E = pickup | VR: Trigger=Attack Grip=Teleport</div>
   <div class="bottom-bar">
     <div class="events" id="events-log"><div>Welcome to VR RPG Online...</div></div>
+    <div class="highlights" id="stream-highlights" style="display:none;"><div class="highlight-title">🎬 Stream Highlights</div></div>
+    <div class="highlights" id="leaderboard" style="display:none;border-left-color:#f39c12;"><div class="highlight-title" style="color:#f39c12;">🏆 Leaderboard</div></div>
     <button class="action-btn" id="attack-btn">Attack</button>
     <button class="action-btn" id="pickup-btn">Pickup (E)</button>
   </div>

@@ -9,6 +9,7 @@ const path = require("node:path");
 const fs = require("node:fs");
 const { WebSocketServer } = require("ws");
 const { GameWorld } = require("./game");
+const mysql = require("./mysql");
 
 const PORT = Number(process.env.PORT || 8942);
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
@@ -22,6 +23,7 @@ const mimeTypes = {
   ".jpg": "image/jpeg",
   ".glb": "model/gltf-binary",
   ".gltf": "model/gltf+json",
+  ".svg": "image/svg+xml",
 };
 
 const world = new GameWorld(Date.now() % 100000);
@@ -86,14 +88,44 @@ wss.on("connection", (ws, req) => {
     try { msg = JSON.parse(raw); } catch (e) { return; }
 
     if (msg.type === "join") {
-      world.addPlayer(pid, msg.name || "Hero");
-      broadcastWorld();
+      const charClass = msg.charClass || "warrior";
+      const bonusStats = msg.bonusStats || {};
+      const name = msg.name || "Hero";
+      
+      // Try to load existing character from MySQL
+      mysql.getCharacterByName(name).then((dbChar) => {
+        if (dbChar) {
+          // Load existing character
+          console.log(`[DB] Loaded character ${name} (Lv.${dbChar.level})`);
+          ws._charId = dbChar.id;
+          world.addPlayer(pid, name, charClass, bonusStats, dbChar);
+          mysql.setCharacterOnline(ws._charId, true).catch(()=>{});
+          broadcastWorld();
+        } else {
+          // Create new character in DB
+          mysql.createCharacter(1, name, charClass, bonusStats).then((charId) => {
+            console.log(`[DB] Created character ${name} (ID:${charId})`);
+            ws._charId = charId;
+            world.addPlayer(pid, name, charClass, bonusStats);
+            mysql.setCharacterOnline(ws._charId, true);
+            broadcastWorld();
+          }).catch((err) => {
+            console.warn(`[DB] Failed to create character ${name} — playing in-memory.`, err.message);
+            world.addPlayer(pid, name, charClass, bonusStats);
+            broadcastWorld();
+          });
+        }
+      });
     }
     if (msg.type === "update") {
       world.updatePlayer(pid, msg.data || {});
     }
     if (msg.type === "attack") {
-      const result = world.playerAttack(pid);
+      const result = world.playerAttack(pid, msg.data || {});
+      if (result) broadcastWorld();
+    }
+    if (msg.type === "skill") {
+      const result = world.playerUseSkill(pid, msg.skillIndex || 0);
       if (result) broadcastWorld();
     }
     if (msg.type === "pickup") {
@@ -103,6 +135,16 @@ wss.on("connection", (ws, req) => {
   });
 
   ws.on("close", () => {
+    const p = world.players.get(pid);
+    if (p && ws._charId) {
+      mysql.saveCharacter(ws._charId, {
+        name: p.name, class: p.class, level: p.level, xp: p.xp, gold: p.gold,
+        hp: p.hp, maxHp: p.maxHp, mana: p.mana, maxMana: p.maxMana,
+        str: p.str, dex: p.dex, int: p.int, vit: p.vit,
+        pos: p.pos, isOnline: false,
+      }).catch(() => {});
+      mysql.setCharacterOnline(ws._charId, false).catch(() => {});
+    }
     world.removePlayer(pid);
     broadcastWorld();
     console.log(`[WS] Disconnect ${pid}`);
@@ -110,10 +152,36 @@ wss.on("connection", (ws, req) => {
 });
 
 // Server tick loop (20 Hz)
+let tickCount = 0;
 setInterval(() => {
   world.tick();
   broadcastWorld();
+  tickCount++;
+  
+  // Auto-save all online players every 600 ticks (~30 seconds)
+  if (tickCount % 600 === 0) {
+    for (const [pid, p] of world.players) {
+      const ws = [...wss.clients].find((c) => c._pid === pid);
+      if (ws && ws._charId) {
+        mysql.saveCharacter(ws._charId, {
+          name: p.name, class: p.class, level: p.level, xp: p.xp, gold: p.gold,
+          hp: p.hp, maxHp: p.maxHp, mana: p.mana, maxMana: p.maxMana,
+          str: p.str, dex: p.dex, int: p.int, vit: p.vit,
+          pos: p.pos, isOnline: true,
+        }).catch(() => {});
+      }
+    }
+  }
 }, 50);
+
+// Verify MySQL on startup
+mysql.POOL.getConnection().then((conn) => {
+  console.log("[DB] MySQL connected ✓");
+  conn.release();
+}).catch((err) => {
+  console.error("[DB] MySQL connection failed:", err.message);
+  console.log("[DB] Game will run with in-memory characters only");
+});
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`VR RPG Online running at http://0.0.0.0:${PORT}`);

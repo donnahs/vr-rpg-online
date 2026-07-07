@@ -8,6 +8,8 @@
     "check": "node --check src/game.js && node --check src/server.js && node --check public/app.js"
   },
   "dependencies": {
+    "better-sqlite3": "^12.11.1",
+    "mysql2": "^3.22.5",
     "three": "^0.160.1",
     "ws": "^8.21.0"
   }

@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VR RPG Overlay</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: transparent;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    color: #fff;
+    width: 100vw; height: 100vh;
+    overflow: hidden;
+  }
+  #overlay {
+    position: absolute; top: 16px; left: 16px;
+    width: 380px;
+    background: rgba(10, 10, 20, 0.75);
+    border: 1px solid rgba(0, 212, 255, 0.3);
+    border-radius: 12px;
+    padding: 14px 16px;
+    backdrop-filter: blur(4px);
+    transition: opacity 0.3s;
+  }
+  #overlay.disconnected { opacity: 0.4; }
+  .header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 10px;
+  }
+  .name {
+    font-size: 1.1rem; font-weight: 700;
+    color: #00d4ff;
+    text-shadow: 0 0 6px rgba(0,212,255,0.4);
+  }
+  .meta {
+    font-size: 0.75rem; color: #aaa;
+  }
+  .bars { margin-bottom: 10px; }
+  .bar-row {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 6px;
+  }
+  .bar-label {
+    width: 36px; font-size: 0.7rem; color: #888;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .bar-track {
+    flex: 1; height: 10px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 5px; overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%; border-radius: 5px;
+    transition: width 0.25s ease-out;
+  }
+  .hp-fill { background: linear-gradient(90deg, #e74c3c, #2ecc71); }
+  .mana-fill { background: linear-gradient(90deg, #2980b9, #3498db); }
+  .stats-row {
+    display: flex; gap: 10px;
+    font-size: 0.75rem; color: #bbb;
+    margin-bottom: 8px;
+  }
+  .stat-box {
+    flex: 1; text-align: center;
+    background: rgba(255,255,255,0.04);
+    border-radius: 6px; padding: 4px 0;
+  }
+  .stat-val { font-weight: 700; color: #fff; font-size: 0.85rem; }
+  .equip-row {
+    display: flex; gap: 6px;
+    margin-bottom: 8px;
+  }
+  .equip-chip {
+    flex: 1; font-size: 0.68rem;
+    padding: 4px 6px; border-radius: 4px;
+    background: rgba(255,255,255,0.06);
+    border-left: 2px solid #555;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .equip-chip.weapon { border-color: #e74c3c; }
+  .equip-chip.armor  { border-color: #3498db; }
+  .equip-chip.ring   { border-color: #f1c40f; }
+  .events {
+    max-height: 72px; overflow: hidden;
+    font-size: 0.72rem; color: #ccc; line-height: 1.5;
+  }
+  .event-item { opacity: 0.85; }
+  .event-item.highlight { color: #f39c12; font-weight: 600; opacity: 1; }
+  .footer {
+    margin-top: 8px; font-size: 0.65rem; color: #666;
+    display: flex; justify-content: space-between;
+  }
+  .ping { color: #2ecc71; }
+  .ping.bad { color: #e74c3c; }
+</style>
+</head>
+<body>
+<div id="overlay" class="disconnected">
+  <div class="header">
+    <div>
+      <div class="name" id="ov-name">—</div>
+      <div class="meta"><span id="ov-class">—</span> • Lv.<span id="ov-level">—</span></div>
+    </div>
+    <div class="meta" style="text-align:right;">
+      <div>🪙 <span id="ov-gold">0</span></div>
+      <div>⚔️ <span id="ov-kills">0</span></div>
+    </div>
+  </div>
+
+  <div class="bars">
+    <div class="bar-row">
+      <div class="bar-label">HP</div>
+      <div class="bar-track"><div class="bar-fill hp-fill" id="ov-hp-bar" style="width:100%"></div></div>
+      <div class="bar-label" style="width:auto; min-width:48px; text-align:right;" id="ov-hp-text">—</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">MP</div>
+      <div class="bar-track"><div class="bar-fill mana-fill" id="ov-mana-bar" style="width:100%"></div></div>
+      <div class="bar-label" style="width:auto; min-width:48px; text-align:right;" id="ov-mana-text">—</div>
+    </div>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-box">STR<br><span class="stat-val" id="ov-str">—</span></div>
+    <div class="stat-box">DEX<br><span class="stat-val" id="ov-dex">—</span></div>
+    <div class="stat-box">INT<br><span class="stat-val" id="ov-int">—</span></div>
+    <div class="stat-box">VIT<br><span class="stat-val" id="ov-vit">—</span></div>
+  </div>
+
+  <div class="equip-row">
+    <div class="equip-chip weapon" id="ov-weapon">⚔️ —</div>
+    <div class="equip-chip armor" id="ov-armor">🛡️ —</div>
+    <div class="equip-chip ring" id="ov-ring">💍 —</div>
+  </div>
+
+  <div class="events" id="ov-events"></div>
+
+  <div class="footer">
+    <span id="ov-status">Connecting…</span>
+    <span class="ping" id="ov-ping">—ms</span>
+  </div>
+</div>
+
+<script>
+(function() {
+  const WS_URL = `ws://${location.host}`;
+  let ws, myPlayer = null, pingStart = 0;
+  const MAX_EVENTS = 5;
+
+  function $(id) { return document.getElementById(id); }
+
+  function setText(id, text) {
+    const el = $(id);
+    if (el) el.textContent = text;
+  }
+
+  function setHtml(id, html) {
+    const el = $(id);
+    if (el) el.innerHTML = html;
+  }
+
+  function updateBars() {
+    if (!myPlayer) return;
+    const hpPct = Math.max(0, Math.min(1, myPlayer.hp / myPlayer.maxHp));
+    const mpPct = Math.max(0, Math.min(1, (myPlayer.mana || 0) / (myPlayer.maxMana || 1)));
+    $('ov-hp-bar').style.width = (hpPct * 100).toFixed(1) + '%';
+    $('ov-mana-bar').style.width = (mpPct * 100).toFixed(1) + '%';
+    setText('ov-hp-text', `${Math.floor(myPlayer.hp)}/${myPlayer.maxHp}`);
+    setText('ov-mana-text', `${Math.floor(myPlayer.mana || 0)}/${myPlayer.maxMana || 0}`);
+  }
+
+  function updateStats() {
+    if (!myPlayer) return;
+    setText('ov-name', myPlayer.name || 'Hero');
+    setText('ov-class', myPlayer.class || 'warrior');
+    setText('ov-level', myPlayer.level || 1);
+    setText('ov-gold', myPlayer.gold || 0);
+    setText('ov-kills', myPlayer.kills || 0);
+    setText('ov-str', myPlayer.str || 8);
+    setText('ov-dex', myPlayer.dex || 4);
+    setText('ov-int', myPlayer.int || 3);
+    setText('ov-vit', myPlayer.vit || 7);
+
+    const eq = myPlayer.equipment || {};
+    setText('ov-weapon', eq.weapon ? eq.weapon.name : '—');
+    setText('ov-armor', eq.armor ? eq.armor.name : '—');
+    setText('ov-ring', eq.ring ? eq.ring.name : '—');
+    const wChip = $('ov-weapon');
+    const aChip = $('ov-armor');
+    const rChip = $('ov-ring');
+    if (wChip) wChip.style.color = eq.weapon ? (eq.weapon.color || '#fff') : '#888';
+    if (aChip) aChip.style.color = eq.armor ? (eq.armor.color || '#fff') : '#888';
+    if (rChip) rChip.style.color = eq.ring ? (eq.ring.color || '#fff') : '#888';
+
+    updateBars();
+  }
+
+  function pushEvent(text, isHighlight = false) {
+    const container = $('ov-events');
+    const div = document.createElement('div');
+    div.className = 'event-item' + (isHighlight ? ' highlight' : '');
+    div.textContent = text;
+    container.prepend(div);
+    while (container.children.length > MAX_EVENTS) {
+      container.removeChild(container.lastChild);
+    }
+  }
+
+  function connect() {
+    try {
+      ws = new WebSocket(WS_URL);
+      ws.onopen = () => {
+        $('overlay').classList.remove('disconnected');
+        setText('ov-status', 'Connected');
+        // Auto-join as overlay spectator (same join flow as game)
+        ws.send(JSON.stringify({ type: 'join', name: 'OverlayBot', charClass: 'warrior' }));
+      };
+      ws.onmessage = (ev) => {
+        pingStart = performance.now();
+        let msg;
+        try { msg = JSON.parse(ev.data); } catch (e) { return; }
+
+        if (msg.type === 'connected') {
+          // Server gave us a PID; now join the world
+          ws.send(JSON.stringify({ type: 'join', name: 'OverlayBot', charClass: 'warrior' }));
+        }
+        if (msg.type === 'world') {
+          const data = msg.data || {};
+          // Find our player in the list
+          if (data.players) {
+            const me = data.players.find(p => p.name === 'OverlayBot');
+            if (me) {
+              myPlayer = me;
+              updateStats();
+            }
+          }
+          // Listen for events
+          if (data.events && data.events.length > 0) {
+            for (const ev of data.events.slice(0, 3)) {
+              const hl = ev.type === 'kill' || ev.type === 'level_up' || ev.type === 'loot';
+              pushEvent(ev.text, hl);
+            }
+          }
+        }
+        if (msg.type === 'update' && msg.player) {
+          // Direct player update
+          if (msg.player.name === 'OverlayBot') {
+            myPlayer = msg.player;
+            updateStats();
+          }
+        }
+        // Simple ping calc
+        const latency = Math.round(performance.now() - pingStart);
+        const pingEl = $('ov-ping');
+        if (pingEl) {
+          pingEl.textContent = latency + 'ms';
+          pingEl.className = 'ping' + (latency > 200 ? ' bad' : '');
+        }
+      };
+      ws.onclose = () => {
+        $('overlay').classList.add('disconnected');
+        setText('ov-status', 'Reconnecting…');
+        setTimeout(connect, 3000);
+      };
+      ws.onerror = () => {
+        $('overlay').classList.add('disconnected');
+        setText('ov-status', 'Error');
+      };
+    } catch (err) {
+      setText('ov-status', 'WS failed');
+      setTimeout(connect, 5000);
+    }
+  }
+
+  connect();
+})();
+</script>
+</body>
+</html>

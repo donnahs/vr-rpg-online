@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VR RPG Online — Live Dungeon Feed</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: #08080f;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    color: #fff;
+    min-height: 100vh;
+  }
+  header {
+    background: linear-gradient(135deg, #1a1a2e 0%, #0f0f1a 100%);
+    border-bottom: 1px solid #222;
+    padding: 24px 32px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .logo { font-size: 1.4rem; font-weight: 700; color: #00d4ff; text-shadow: 0 0 8px rgba(0,212,255,0.3); }
+  .status {
+    display: flex; gap: 24px; align-items: center;
+  }
+  .pill {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    padding: 6px 14px;
+    font-size: 0.85rem;
+    color: #bbb;
+  }
+  .pill .num { color: #fff; font-weight: 700; }
+  .pill.live { border-color: #2ecc71; background: rgba(46,204,113,0.08); }
+  .pill.live .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#2ecc71; margin-right:6px; animation:pulse 1.5s infinite; }
+  @keyframes pulse { 0%{opacity:1} 50%{opacity:.3} 100%{opacity:1} }
+  .hero {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 32px;
+    padding: 32px;
+    align-items: start;
+  }
+  .panel {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .panel h2 {
+    font-size: 0.95rem; color: #888;
+    text-transform: uppercase; letter-spacing: 0.6px;
+    margin-bottom: 14px;
+  }
+  .player-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    background: rgba(255,255,255,0.03);
+    transition: background 0.2s;
+  }
+  .player-row:hover { background: rgba(255,255,255,0.06); }
+  .class-icon { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-size: 0.9rem; }
+  .warrior { background: rgba(231,76,60,0.15); color: #e74c3c; }
+  .rogue   { background: rgba(243,156,18,0.15); color: #f39c12; }
+  .mage    { background: rgba(52,152,219,0.15); color: #3498db; }
+  .player-info { flex:1; }
+  .player-name { font-weight: 600; font-size: 0.9rem; }
+  .player-meta { font-size: 0.75rem; color: #777; }
+  .player-stat { font-size: 0.8rem; color: #aaa; }
+  .enemy-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px;
+  }
+  .enemy-card {
+    background: rgba(255,255,255,0.03);
+    border-radius: 8px; padding: 10px;
+    text-align: center; font-size: 0.8rem;
+    border-left: 3px solid #e74c3c;
+  }
+  .enemy-name { font-weight: 600; color: #ddd; }
+  .enemy-hp { color: #aaa; font-size: 0.75rem; margin-top: 4px; }
+  .boss { border-color: #f1c40f !important; }
+  .feed {
+    padding: 20px 32px;
+  }
+  .feed h2 { font-size: 0.95rem; color: #888; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 12px; }
+  .event-line {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.04);
+    font-size: 0.85rem; color: #bbb;
+  }
+  .event-line .time { color: #555; font-size: 0.75rem; width: 50px; }
+  .event-line .icon { width: 22px; text-align: center; }
+  .event-line.kill { color: #e74c3c; }
+  .event-line.level { color: #2ecc71; }
+  .event-line.loot { color: #f1c40f; }
+  .cta {
+    text-align: center; padding: 40px;
+  }
+  .cta-btn {
+    display: inline-block;
+    background: #00d4ff; color: #0a0a0a;
+    font-weight: 700; font-size: 1rem;
+    padding: 14px 32px; border-radius: 10px;
+    text-decoration: none;
+    transition: transform 0.15s, background 0.2s;
+  }
+  .cta-btn:hover { transform: scale(1.03); background: #33ddff; }
+  .footer {
+    text-align: center; padding: 24px; font-size: 0.75rem; color: #555;
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">🎮 VR RPG Online</div>
+  <div class="status">
+    <div class="pill live"><span class="dot"></span><span id="conn-status">Live</span></div>
+    <div class="pill">Players: <span class="num" id="live-players">0</span></div>
+    <div class="pill">Enemies: <span class="num" id="live-enemies">0</span></div>
+    <div class="pill">Items: <span class="num" id="live-items">0</span></div>
+  </div>
+</header>
+
+<div class="hero">
+  <div class="panel">
+    <h2>🏆 Players Online</h2>
+    <div id="players-list"><div style="color:#555;font-size:0.85rem;">No players online</div></div>
+  </div>
+  <div class="panel">
+    <h2>👹 Enemies in Dungeon</h2>
+    <div id="enemies-list" class="enemy-grid"><div style="color:#555;font-size:0.85rem;">No enemies</div></div>
+  </div>
+</div>
+
+<div class="feed">
+  <h2>📜 Live Feed</h2>
+  <div id="events-feed"><div class="event-line" style="color:#555">Connecting to live feed…</div></div>
+</div>
+
+<div class="cta">
+  <a href="/index.html" class="cta-btn">Enter Dungeon →</a>
+</div>
+
+<div class="footer">
+  VR RPG Online — WebSocket-powered multiplayer dungeon crawler • Three.js + WebXR
+</div>
+
+<script>
+(function() {
+  const WS_URL = `ws://${location.host}`;
+  let ws;
+  const MAX_EVENTS = 20;
+  const eventLog = [];
+
+  function fmtTime(d) {
+    return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+  }
+
+  function setText(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+  }
+
+  function renderPlayers(players) {
+    const container = document.getElementById('players-list');
+    if (!players || players.length === 0) {
+      container.innerHTML = '<div style="color:#555;font-size:0.85rem;">No players online</div>';
+      return;
+    }
+    container.innerHTML = players.map(p => {
+      const cls = p.class || 'warrior';
+      const icons = { warrior: '⚔️', rogue: '🗡️', mage: '🔮' };
+      return `<div class="player-row">
+        <div class="class-icon ${cls}">${icons[cls] || '⚔️'}</div>
+        <div class="player-info">
+          <div class="player-name">${p.name || 'Hero'}</div>
+          <div class="player-meta">Lv.${p.level || 1} ${cls.charAt(0).toUpperCase()+cls.slice(1)} — HP ${Math.floor(p.hp||0)}/${p.maxHp||0}</div>
+        </div>
+        <div class="player-stat">Kills ${p.kills||0} | 🪙 ${p.gold||0}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function renderEnemies(enemies) {
+    const container = document.getElementById('enemies-list');
+    if (!enemies || enemies.length === 0) {
+      container.innerHTML = '<div style="color:#555;font-size:0.85rem;">No enemies</div>';
+      return;
+    }
+    container.innerHTML = enemies.map(e => {
+      const isBoss = e.isBoss;
+      const hpPct = Math.round((e.hp / (e.maxHp||1)) * 100);
+      return `<div class="enemy-card ${isBoss?'boss':''}">
+        <div class="enemy-name">${isBoss?'👑 ':''}${e.type || 'enemy'}</div>
+        <div class="enemy-hp">HP ${e.hp}/${e.maxHp||'?'} (${hpPct}%)</div>
+      </div>`;
+    }).join('');
+  }
+
+  function pushEvent(ev) {
+    const container = document.getElementById('events-feed');
+    const icons = { kill:'⚔️', level_up:'⬆️', loot:'💎', gold:'🪙', system:'ℹ️' };
+    const cls = ev.type === 'kill' ? 'kill' : ev.type === 'level_up' ? 'level' : ev.type === 'loot' ? 'loot' : '';
+    eventLog.unshift({ t: new Date(), text: ev.text, type: ev.type });
+    if (eventLog.length > MAX_EVENTS) eventLog.pop();
+    container.innerHTML = eventLog.map(e =>
+      `<div class="event-line ${e.type === 'kill' ? 'kill' : e.type === 'level_up' ? 'level' : e.type === 'loot' ? 'loot' : ''}">
+        <span class="time">${fmtTime(e.t)}</span>
+        <span class="icon">${icons[e.type] || '•'}</span>
+        <span>${e.text}</span>
+      </div>`
+    ).join('');
+  }
+
+  function connect() {
+    try {
+      ws = new WebSocket(WS_URL);
+      ws.onopen = () => {
+        document.getElementById('conn-status').textContent = 'Live';
+        ws.send(JSON.stringify({ type: 'join', name: 'Spectator', charClass: 'warrior' }));
+      };
+      ws.onmessage = (ev) => {
+        let msg; try { msg = JSON.parse(ev.data); } catch(e){ return; }
+        if (msg.type !== 'world' || !msg.data) return;
+        const d = msg.data;
+        setText('live-players', d.players ? d.players.length : 0);
+        setText('live-enemies', d.enemies ? d.enemies.length : 0);
+        setText('live-items', d.items ? d.items.filter(i=>!i.pickedUp).length : 0);
+        renderPlayers(d.players);
+        renderEnemies(d.enemies);
+        if (d.events && d.events.length) {
+          for (const ev of d.events.slice(0,3)) pushEvent(ev);
+        }
+      };
+      ws.onclose = () => {
+        document.getElementById('conn-status').textContent = 'Reconnecting…';
+        setTimeout(connect, 3000);
+      };
+      ws.onerror = () => {
+        document.getElementById('conn-status').textContent = 'Error';
+      };
+    } catch(e) {}
+  }
+
+  connect();
+})();
+</script>
+</body>
+</html>
