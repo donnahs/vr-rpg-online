@@ -205,7 +205,88 @@
     while (container.children.length > MAX_EVENTS) {
       container.removeChild(container.lastChild);
     }
+
+    // Auto-clip capture: trigger OBS recording on kill/level events
+    if (isHighlight && CLIP_ENABLED) {
+      triggerClip(text);
+    }
   }
+
+  // --- OBS WebSocket Auto-Clip ---
+  // Connects to OBS WebSocket (default port 4455) to trigger replays/clips
+  // on kill and level-up events. Configure OBS_URL and CLIP_DURATION below.
+  // OBS WebSocket plugin must be installed in OBS Studio.
+  const OBS_URL = `ws://${location.hostname}:4455`;
+  const CLIP_DURATION = 10; // seconds — OBS replay buffer duration
+  const CLIP_ENABLED = false; // set to true after configuring OBS WebSocket
+  let obsWs = null;
+  let obsConnected = false;
+
+  function connectOBS() {
+    if (!CLIP_ENABLED) return;
+    try {
+      obsWs = new WebSocket(OBS_URL);
+      obsWs.onopen = () => {
+        obsConnected = true;
+        console.log('[Overlay] OBS WebSocket connected — auto-clip ready');
+      };
+      obsWs.onclose = () => {
+        obsConnected = false;
+        setTimeout(connectOBS, 5000);
+      };
+      obsWs.onerror = () => { obsConnected = false; };
+    } catch (e) {
+      console.warn('[Overlay] OBS connection failed:', e);
+    }
+  }
+
+  function triggerClip(eventName) {
+    if (!obsConnected || !obsWs || obsWs.readyState !== WebSocket.OPEN) return;
+    // Save replay buffer (creates a clip)
+    const msg = {
+      'op': 6, // Request
+      'd': {
+        'requestType': 'SaveReplayBuffer',
+        'requestId': 'clip_' + Date.now()
+      }
+    };
+    obsWs.send(JSON.stringify(msg));
+    console.log('[Overlay] Clip triggered:', eventName);
+
+    // Flash the overlay border to indicate clip capture
+    const overlay = $('overlay');
+    if (overlay) {
+      overlay.style.borderColor = '#f39c12';
+      overlay.style.boxShadow = '0 0 20px rgba(243,156,18,0.4)';
+      setTimeout(() => {
+        overlay.style.borderColor = '';
+        overlay.style.boxShadow = '';
+      }, 1500);
+    }
+  }
+
+  // Also support Streamlabs Desktop WebSocket (port 59650)
+  const STREAMLABS_URL = `ws://${location.hostname}:59650`;
+  function connectStreamlabs() {
+    if (!CLIP_ENABLED) return;
+    try {
+      const slWs = new WebSocket(STREAMLABS_URL);
+      slWs.onopen = () => {
+        console.log('[Overlay] Streamlabs WebSocket connected');
+      };
+    } catch (e) {
+      // Streamlabs is optional
+    }
+  }
+
+  // Keyboard shortcut: press 'C' to manually trigger a clip
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'c' || e.key === 'C') {
+      if (CLIP_ENABLED) triggerClip('Manual clip (key C)');
+    }
+  });
+
+  connectOBS();
 
   function connect() {
     try {

@@ -12,6 +12,28 @@ const { GameWorld } = require("./game");
 const mysql = require("./mysql");
 
 const PORT = Number(process.env.PORT || 8942);
+const LEADERBOARD_API = process.env.LEADERBOARD_API || "http://127.0.0.1:8900";
+
+// ── Leaderboard submission helper ──
+function submitScore(player) {
+  if (!player || !player.name) return;
+  const payload = JSON.stringify({
+    player_id: player.id || 0,
+    player_name: player.name,
+    kills: player.kills || 0,
+    deaths: player.deaths || 0,
+    level: player.level || 1,
+    xp: player.xp || 0,
+  });
+  const url = new URL("/leaderboard/score", LEADERBOARD_API);
+  fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: payload,
+  }).catch((err) => {
+    // Silent fail — game works without leaderboard
+  });
+}
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
 
 const mimeTypes = {
@@ -42,6 +64,20 @@ const server = http.createServer((req, res) => {
   if (req.url === "/api/world") {
     res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
     res.end(JSON.stringify(world.serialize()));
+    return;
+  }
+  if (req.url.startsWith("/api/leaderboard")) {
+    const limit = new URL(req.url, `http://localhost:${PORT}`).searchParams.get("limit") || "10";
+    fetch(`${LEADERBOARD_API}/leaderboard/top?limit=${limit}`)
+      .then((r) => r.json())
+      .then((data) => {
+        res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+        res.end(JSON.stringify(data));
+      })
+      .catch(() => {
+        res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+        res.end(JSON.stringify({ error: "leaderboard unavailable", top: [] }));
+      });
     return;
   }
 
@@ -122,15 +158,45 @@ wss.on("connection", (ws, req) => {
     }
     if (msg.type === "attack") {
       const result = world.playerAttack(pid, msg.data || {});
-      if (result) broadcastWorld();
+      if (result) {
+        const p = world.players.get(pid);
+        if (p && result.killed) submitScore(p);
+        broadcastWorld();
+      }
     }
     if (msg.type === "skill") {
       const result = world.playerUseSkill(pid, msg.skillIndex || 0);
-      if (result) broadcastWorld();
+      if (result) {
+        const p = world.players.get(pid);
+        if (p) submitScore(p);
+        broadcastWorld();
+      }
     }
     if (msg.type === "pickup") {
       const result = world.pickupItem(pid);
       if (result) broadcastWorld();
+    }
+    if (msg.type === "chat") {
+      const p = world.players.get(pid);
+      if (p && msg.text && typeof msg.text === "string") {
+        const text = msg.text.trim().slice(0, 200);
+        if (text.length > 0) {
+          const chatMsg = {
+            type: "chat",
+            data: {
+              id: `chat_${Date.now()}_${Math.floor(Math.random()*10000)}`,
+              pid: pid,
+              name: p.name,
+              class: p.class,
+              level: p.level,
+              text: text,
+              timestamp: Date.now(),
+            },
+          };
+          broadcast(chatMsg);
+          console.log(`[CHAT] ${p.name}: ${text}`);
+        }
+      }
     }
   });
 

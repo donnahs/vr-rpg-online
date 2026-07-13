@@ -300,32 +300,37 @@ class Player {
 }
 
 class Enemy {
-  constructor(eid, x, z, etype = "goblin", isBoss = false) {
+  constructor(eid, x, z, etype = "goblin", isBoss = false, depth = 1) {
     this.id = eid;
     this.etype = etype;
     this.isBoss = isBoss;
     this.pos = Vec3(x, isBoss ? 2.5 : 0.5, z);
-    
+    this.depth = depth;
+
+    // Depth scaling: +20% HP, +15% damage per floor above 1
+    const depthMult = 1 + (depth - 1) * 0.2;
+    const dmgMult = 1 + (depth - 1) * 0.15;
+
     if (isBoss) {
-      this.hp = 500;
-      this.maxHp = 500;
-      this.damage = 25;
+      this.hp = Math.floor(500 * depthMult);
+      this.maxHp = this.hp;
+      this.damage = Math.floor(25 * dmgMult);
       this.speed = 2.0;
-      this.attackCooldown = 1200;
+      this.attackCooldown = Math.max(800, 1200 - (depth - 1) * 50);
       this.awarenessRadius = 15.0;
-      this.color = "#ff00ff";
+      this.color = depth >= 5 ? "#ff0066" : "#ff00ff";
       this.patrolRadius = 6.0;
     } else {
-      this.hp = etype === "goblin" ? 30 : 60;
+      this.hp = Math.floor((etype === "goblin" ? 30 : 60) * depthMult);
       this.maxHp = this.hp;
-      this.damage = etype === "goblin" ? 5 : 12;
-      this.speed = 1.5;
-      this.attackCooldown = 1500;
-      this.awarenessRadius = 8.0;
+      this.damage = Math.floor((etype === "goblin" ? 5 : 12) * dmgMult);
+      this.speed = 1.5 + (depth - 1) * 0.05;
+      this.attackCooldown = Math.max(800, 1500 - (depth - 1) * 30);
+      this.awarenessRadius = 8.0 + (depth - 1) * 0.3;
       this.color = etype === "goblin" ? "#e74c3c" : "#c0392b";
       this.patrolRadius = 4.0;
     }
-    
+
     this.state = "patrol";
     this.patrolCenter = Vec3(x, 0.5, z);
     this.target = null;
@@ -337,6 +342,7 @@ class Enemy {
       isBoss: this.isBoss,
       pos: this.pos, hp: this.hp, maxHp: this.maxHp,
       state: this.state, color: this.color,
+      depth: this.depth,
     };
   }
 }
@@ -383,10 +389,67 @@ class GameWorld {
     this.walls = [];
     this.spawnPoints = [];
     this.lastTick = Date.now();
+    this.dungeonDepth = 1;
+    this._floorCleared = false;
     this._generateDungeon();
     this._spawnEnemies(6);
     this._spawnBoss();
     this._spawnItems(10);
+  }
+
+  // ── Dungeon Progression System ──
+  _checkFloorCleared() {
+    if (this._floorCleared) return;
+    if (this.enemies.size === 0) {
+      this._floorCleared = true;
+      this._addEvent(`🏰 FLOOR ${this.dungeonDepth} CLEARED! Descending to floor ${this.dungeonDepth + 1}...`);
+      // Broadcast floor-clear event for client visual effects
+      this._addEvent(`⚡ Dungeon difficulty increases! Enemies grow stronger...`);
+      // Delay 3 seconds before advancing, giving players time to loot
+      setTimeout(() => {
+        this._advanceDungeon();
+      }, 3000);
+    }
+  }
+
+  _advanceDungeon() {
+    this.dungeonDepth += 1;
+    this._floorCleared = false;
+
+    // Regenerate with new seed for layout variety
+    this.seed = (this.seed + 13337) % 100000;
+    this.rng = mulberry32(this.seed);
+
+    // Clear remaining items (unpicked loot from previous floor)
+    this.items.clear();
+
+    // Rebuild dungeon layout
+    this._generateDungeon();
+
+    // Scale enemy count: 6 + 1 per depth (capped at 15)
+    const enemyCount = Math.min(6 + this.dungeonDepth, 15);
+    this._spawnEnemies(enemyCount);
+
+    // Boss gets tougher each floor
+    this._spawnBoss();
+
+    // Scale loot: more items on deeper floors
+    const itemCount = Math.min(10 + this.dungeonDepth * 2, 25);
+    this._spawnItems(itemCount);
+
+    // Reposition all players to new spawn points
+    let idx = 0;
+    for (const p of this.players.values()) {
+      if (this.spawnPoints.length > 0) {
+        const sp = this.spawnPoints[idx % this.spawnPoints.length];
+        p.pos = Vec3(sp.x, sp.y, sp.z);
+        p.hp = Math.min(p.maxHp, p.hp + Math.floor(p.maxHp * 0.25)); // 25% HP heal on floor advance
+        idx++;
+      }
+    }
+
+    this._addEvent(`⚔️ FLOOR ${this.dungeonDepth}: ${enemyCount} enemies await. Good luck, heroes.`);
+    this._addHighlight({ type: "floor_advance", depth: this.dungeonDepth, timestamp: Date.now() });
   }
 
   _generateDungeon() {
@@ -510,7 +573,7 @@ class GameWorld {
       const x = (cell.x + 0.5) * TILE_SIZE;
       const z = (cell.y + 0.5) * TILE_SIZE;
       const etype = this.rng() > 0.3 ? "goblin" : "orc";
-      const e = new Enemy(`enemy_${i}`, x, z, etype);
+      const e = new Enemy(`enemy_${i}`, x, z, etype, false, this.dungeonDepth);
       e.patrolCenter = Vec3(x, 0.5, z);
       this.enemies.set(e.id, e);
     }
@@ -522,34 +585,57 @@ class GameWorld {
     const cell = this._floorCells[Math.floor(this.rng() * this._floorCells.length)];
     const x = (cell.x + 0.5) * TILE_SIZE;
     const z = (cell.y + 0.5) * TILE_SIZE;
-    const boss = new Enemy("boss_1", x, z, "demon", true);
+    const boss = new Enemy("boss_1", x, z, "demon", true, this.dungeonDepth);
     boss.patrolCenter = Vec3(x, 0.5, z);
     this.enemies.set(boss.id, boss);
-    this._addEvent("⚠️ A BOSS has appeared in the dungeon!");
+    this._addEvent(`⚠️ A BOSS has appeared on floor ${this.dungeonDepth}!`);
   }
 
   _spawnItems(count) {
+    // Deeper floors have more equipment and better rarity odds
+    const depthBias = this.dungeonDepth >= 5 ? 0.4 : this.dungeonDepth >= 3 ? 0.3 : 0.25;
     const lootTable = [
       "gold","gold","gold",
       "potion","potion",
-      "equipment","equipment", // weapon/armor/ring drops
+      "equipment","equipment",
     ];
+    // Add extra equipment slots based on depth
+    const extraEquip = Math.floor(this.dungeonDepth / 2);
+    for (let i = 0; i < extraEquip; i++) lootTable.push("equipment");
+
     for (let i = 0; i < count && this._floorCells.length > 0; i++) {
       const cell = this._floorCells[Math.floor(this.rng() * this._floorCells.length)];
       const x = (cell.x + 0.5) * TILE_SIZE;
       const z = (cell.y + 0.5) * TILE_SIZE;
       const roll = lootTable[Math.floor(this.rng() * lootTable.length)];
-      
+
       let item;
       if (roll === "gold") {
-        item = new Item(`item_${Date.now()}_${i}`, x, z, "gold", Math.floor(this.rng() * 20 + 5));
+        // Gold scales with depth
+        const goldVal = Math.floor(this.rng() * (20 + this.dungeonDepth * 3) + 5 + this.dungeonDepth * 2);
+        item = new Item(`item_${Date.now()}_${i}`, x, z, "gold", goldVal);
       } else if (roll === "potion") {
-        item = new Item(`item_${Date.now()}_${i}`, x, z, "potion", 30 + Math.floor(this.rng() * 20));
+        // Potions heal more on deeper floors
+        const healVal = 30 + Math.floor(this.rng() * 20) + (this.dungeonDepth - 1) * 5;
+        item = new Item(`item_${Date.now()}_${i}`, x, z, "potion", healVal);
       } else {
         // Equipment drop: weapon, armor, or ring
         const equipTypes = ["weapon", "armor", "ring"];
         const etype = equipTypes[Math.floor(this.rng() * equipTypes.length)];
         const equip = generateEquipment(etype, this.rng);
+        // Depth-based rarity boost: chance to upgrade rarity on deeper floors
+        if (this.dungeonDepth >= 3 && equip.rarity === "common" && this.rng() < depthBias) {
+          equip.rarity = "uncommon";
+          equip.color = ITEM_TIERS.uncommon.color;
+          const statKey = Object.keys(equip.bonus)[0];
+          if (statKey) equip.bonus[statKey] += 2;
+        }
+        if (this.dungeonDepth >= 5 && equip.rarity === "uncommon" && this.rng() < depthBias * 0.5) {
+          equip.rarity = "rare";
+          equip.color = ITEM_TIERS.rare.color;
+          const statKey = Object.keys(equip.bonus)[0];
+          if (statKey) equip.bonus[statKey] += 3;
+        }
         item = new Item(`item_${Date.now()}_${i}`, x, z, "equipment", 0);
         item.equipment = equip;
         item.name = equip.name;
@@ -695,6 +781,7 @@ class GameWorld {
               this._addEvent(`${p.name} defeated ${other.etype}!`);
               this._addHighlight({ type: "kill", player: p.name, target: other.etype, level: p.level, timestamp: Date.now() });
               this.enemies.delete(other.id);
+              this._checkFloorCleared();
             }
           }
         }
@@ -746,15 +833,9 @@ class GameWorld {
         }
         
         this.enemies.delete(nearest.id);
+        this._checkFloorCleared();
         
-        // Respawn normal enemy (not for boss)
-        if (!isBoss) {
-          const x = this.rng() * 30 - 15;
-          const z = this.rng() * 30 - 15;
-          const etype = this.rng() > 0.3 ? "goblin" : "orc";
-          const ne = new Enemy(`enemy_${Math.floor(this.rng()*9000+1000)}`, x, z, etype);
-          this.enemies.set(ne.id, ne);
-        }
+        // No individual respawn — dungeon progression system handles repopulation
       }
       return { target: nearest.id, damage, killed: nearest.hp <= 0, crit: isCrit };
     }
@@ -806,7 +887,7 @@ class GameWorld {
               this._addHighlight({ type: "level_up", player: p.name, level: p.level, timestamp: Date.now() });
             }
             this.enemies.delete(nearest.id);
-            this._spawnEnemies(1); // Respawn one
+            this._checkFloorCleared();
           }
           return { skill: skill.name, target: nearest.id, damage };
         }
@@ -838,9 +919,11 @@ class GameWorld {
         return { skill: skill.name, duration: skill.duration };
       }
       case "dash": {
-        const dashDir = new THREE.Vector3(Math.sin(p.rot.y), 0, Math.cos(p.rot.y));
-        p.pos.x += dashDir.x * skill.distance;
-        p.pos.z += dashDir.z * skill.distance;
+        // FIX: THREE is not available on server-side — use plain math
+        const dashDx = Math.sin(p.rot.y);
+        const dashDz = Math.cos(p.rot.y);
+        p.pos.x += dashDx * skill.distance;
+        p.pos.z += dashDz * skill.distance;
         this._addEvent(`${p.name} dashed forward!`);
         return { skill: skill.name, distance: skill.distance };
       }
@@ -876,6 +959,7 @@ class GameWorld {
                   this._addEvent(`${p.name} defeated ${other.etype} with splash!`);
                   this._addHighlight({ type: "kill", player: p.name, target: other.etype, level: p.level, timestamp: Date.now() });
                   this.enemies.delete(other.id);
+                  this._checkFloorCleared();
                 }
               }
             }
@@ -891,7 +975,7 @@ class GameWorld {
               this._addHighlight({ type: "level_up", player: p.name, level: p.level, timestamp: Date.now() });
             }
             this.enemies.delete(nearest.id);
-            this._spawnEnemies(1);
+            this._checkFloorCleared();
           }
           return { skill: skill.name, target: nearest.id, damage };
         }
@@ -978,6 +1062,8 @@ class GameWorld {
       highlights: (this.highlights || []).slice(0, 10),
       leaderboard,
       dungeonSize: this.dungeonSize,
+      dungeonDepth: this.dungeonDepth,
+      enemyCount: this.enemies.size,
     };
   }
 }

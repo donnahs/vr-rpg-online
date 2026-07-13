@@ -278,6 +278,7 @@ function connect() {
     try { msg = JSON.parse(ev.data); } catch (e) { return; }
     if (msg.type === "connected") { pid = msg.pid; }
     if (msg.type === "world") { worldState = msg.data; }
+    if (msg.type === "chat") { handleChatMessage(msg.data); }
   };
   ws.onclose = () => { logEvent("Disconnected — reconnecting..."); setTimeout(connect, 2000); };
   ws.onerror = () => {};
@@ -340,6 +341,13 @@ function logEvent(text) {
 
 function updateHUD() {
   if (!myPlayer) return;
+
+  // Track HP loss for hurt sound
+  if (typeof updateHUD._prevHp !== "undefined" && myPlayer.hp < updateHUD._prevHp) {
+    playSound("hurt", 0.4);
+  }
+  updateHUD._prevHp = myPlayer.hp;
+
   document.getElementById("p-name").textContent = myPlayer.name;
   document.getElementById("p-class").textContent = (myPlayer.class || "warrior").charAt(0).toUpperCase() + (myPlayer.class || "warrior").slice(1);
   document.getElementById("p-level").textContent = `Lv.${myPlayer.level}`;
@@ -365,6 +373,12 @@ function updateHUD() {
   document.getElementById("p-xp").textContent = myPlayer.xp;
   document.getElementById("p-kills").textContent = myPlayer.kills || 0;
   document.getElementById("player-stats").style.display = "block";
+
+  // Dungeon progression display
+  const depthEl = document.getElementById("dungeon-depth");
+  const enemyEl = document.getElementById("enemy-count");
+  if (depthEl) depthEl.textContent = worldState.dungeonDepth || 1;
+  if (enemyEl) enemyEl.textContent = worldState.enemyCount || 0;
 
   // Equipment
   const eq = myPlayer.equipment || {};
@@ -406,7 +420,17 @@ function updateHUD() {
       if (text.includes("defeated")) playSound("death", 0.4);
       else if (text.includes("reached level")) playSound("levelup", 0.5);
       else if (text.includes("found")) playSound("loot", 0.3);
-    }
+      else if (text.includes("BOSS")) playSound("bossroar", 0.6);
+      else if (text.includes("picked up") || text.includes("looted")) playSound("pickup", 0.3);
+      else if (text.includes("equipped")) playSound("equip", 0.3);
+      else if (text.includes("FLOOR") && text.includes("CLEARED")) {
+        playSound("levelup", 0.6);
+        // Floor clear screen flash
+        const flash = document.createElement("div");
+        flash.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(243,156,18,0.3);z-index:9999;pointer-events:none;animation:fadeOut 2s ease-out forwards;";
+        document.body.appendChild(flash);
+        setTimeout(() => flash.remove(), 2000);
+      }
   }
 
   // Update stream highlights (kill, level up, rare loot)
@@ -542,6 +566,518 @@ function playSound(type, volume = 0.3) {
       osc.start(now);
       osc.stop(now + 0.1);
       break;
+
+    // ── NEW SOUNDS ──
+
+    case "footstep":
+      // Soft thud — low frequency noise burst
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(80 + Math.random() * 20, now);
+      osc.frequency.exponentialRampToValueAtTime(40, now + 0.08);
+      gain.gain.setValueAtTime(volume * 0.5, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+      osc.start(now);
+      osc.stop(now + 0.08);
+      break;
+
+    case "door":
+      // Creaky door — descending tone with wobble
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(300, now);
+      osc.frequency.setValueAtTime(280, now + 0.05);
+      osc.frequency.setValueAtTime(310, now + 0.1);
+      osc.frequency.exponentialRampToValueAtTime(150, now + 0.4);
+      gain.gain.setValueAtTime(volume * 0.4, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+      osc.start(now);
+      osc.stop(now + 0.4);
+      break;
+
+    case "potion":
+      // Glug-glug — two quick descending tones
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(600, now);
+      osc.frequency.exponentialRampToValueAtTime(400, now + 0.1);
+      gain.gain.setValueAtTime(volume * 0.5, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+      osc.start(now);
+      osc.stop(now + 0.1);
+      // Second glug
+      const osc2 = audioCtx.createOscillator();
+      const gain2 = audioCtx.createGain();
+      osc2.connect(gain2);
+      gain2.connect(audioCtx.destination);
+      osc2.type = "sine";
+      osc2.frequency.setValueAtTime(550, now + 0.12);
+      osc2.frequency.exponentialRampToValueAtTime(350, now + 0.22);
+      gain2.gain.setValueAtTime(volume * 0.4, now + 0.12);
+      gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.22);
+      osc2.start(now + 0.12);
+      osc2.stop(now + 0.22);
+      break;
+
+    case "equip":
+      // metallic clink
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(1200, now);
+      osc.frequency.setValueAtTime(900, now + 0.03);
+      osc.frequency.exponentialRampToValueAtTime(600, now + 0.15);
+      gain.gain.setValueAtTime(volume * 0.4, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+      osc.start(now);
+      osc.stop(now + 0.15);
+      break;
+
+    case "bossroar":
+      // Deep terrifying roar — layered low oscillators
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(80, now);
+      osc.frequency.linearRampToValueAtTime(120, now + 0.1);
+      osc.frequency.linearRampToValueAtTime(60, now + 0.3);
+      osc.frequency.exponentialRampToValueAtTime(30, now + 1.0);
+      gain.gain.setValueAtTime(volume, now);
+      gain.gain.setValueAtTime(volume * 0.8, now + 0.3);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 1.0);
+      osc.start(now);
+      osc.stop(now + 1.0);
+      // Add a second detuned oscillator for thickness
+      const oscR = audioCtx.createOscillator();
+      const gainR = audioCtx.createGain();
+      oscR.connect(gainR);
+      gainR.connect(audioCtx.destination);
+      oscR.type = "square";
+      oscR.frequency.setValueAtTime(55, now);
+      oscR.frequency.linearRampToValueAtTime(75, now + 0.15);
+      oscR.frequency.exponentialRampToValueAtTime(35, now + 1.0);
+      gainR.gain.setValueAtTime(volume * 0.5, now);
+      gainR.gain.exponentialRampToValueAtTime(0.01, now + 1.0);
+      oscR.start(now);
+      oscR.stop(now + 1.0);
+      break;
+
+    case "pickup":
+      // Bright chime — ascending
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(660, now);
+      osc.frequency.setValueAtTime(880, now + 0.06);
+      osc.frequency.setValueAtTime(1320, now + 0.12);
+      gain.gain.setValueAtTime(volume * 0.5, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+      osc.start(now);
+      osc.stop(now + 0.2);
+      break;
+
+    case "uiclick":
+      // Subtle UI blip
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(880, now);
+      gain.gain.setValueAtTime(volume * 0.2, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+      osc.start(now);
+      osc.stop(now + 0.05);
+      break;
+
+    case "hurt":
+      // Player takes damage — sharp descending tone
+      osc.type = "square";
+      osc.frequency.setValueAtTime(220, now);
+      osc.frequency.exponentialRampToValueAtTime(110, now + 0.2);
+      gain.gain.setValueAtTime(volume * 0.6, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+      osc.start(now);
+      osc.stop(now + 0.2);
+      break;
+  }
+}
+
+// ── Ambient Dungeon Audio (Expanded) ──
+let ambientNodes = null;
+let lastFootstepTime = 0;
+let lastAmbientSound = 0;
+let ambientStarted = false;
+
+// Audio state: 'explore' (calm), 'danger' (enemy near), 'combat' (recently attacked), 'boss' (boss alive & near)
+let audioState = "explore";
+let audioStateTimer = 0; // seconds since state change
+let masterVolume = 0.7;
+let musicVolume = 0.3;
+
+// Expanded ambient sound timers
+let lastWindGust = 0;
+let lastChainRattle = 0;
+let lastMagicHum = 0;
+let lastTorchCrackle = 0;
+
+function startAmbientAudio() {
+  if (ambientStarted) return;
+  ambientStarted = true;
+  ensureAudio();
+  if (!audioCtx) return;
+
+  // Master gain node — all audio routes through here
+  const masterGain = audioCtx.createGain();
+  masterGain.gain.value = masterVolume;
+  masterGain.connect(audioCtx.destination);
+
+  // ── Low rumble drone (exploration layer) — two detuned oscillators through a low-pass filter
+  const droneFreq = 55; // A1
+  const droneOsc1 = audioCtx.createOscillator();
+  const droneOsc2 = audioCtx.createOscillator();
+  const droneGain = audioCtx.createGain();
+  const droneFilter = audioCtx.createBiquadFilter();
+
+  droneOsc1.type = "sawtooth";
+  droneOsc1.frequency.value = droneFreq;
+  droneOsc2.type = "sawtooth";
+  droneOsc2.frequency.value = droneFreq * 1.005; // slight detune for beating
+
+  droneFilter.type = "lowpass";
+  droneFilter.frequency.value = 120;
+  droneFilter.Q.value = 1.0;
+
+  droneGain.gain.value = 0.04; // quiet background drone
+
+  droneOsc1.connect(droneFilter);
+  droneOsc2.connect(droneFilter);
+  droneFilter.connect(droneGain);
+  droneGain.connect(masterGain);
+
+  droneOsc1.start();
+  droneOsc2.start();
+
+  // Slow LFO on filter for breathing effect
+  const lfo = audioCtx.createOscillator();
+  const lfoGain = audioCtx.createGain();
+  lfo.frequency.value = 0.08; // very slow
+  lfoGain.gain.value = 30;
+  lfo.connect(lfoGain);
+  lfoGain.connect(droneFilter.frequency);
+  lfo.start();
+
+  // ── Danger layer: higher-pitched dissonant drone (activates when enemies near)
+  const dangerOsc1 = audioCtx.createOscillator();
+  const dangerOsc2 = audioCtx.createOscillator();
+  const dangerGain = audioCtx.createGain();
+  const dangerFilter = audioCtx.createBiquadFilter();
+
+  dangerOsc1.type = "sawtooth";
+  dangerOsc1.frequency.value = 110; // A2 — octave up
+  dangerOsc2.type = "square";
+  dangerOsc2.frequency.value = 116; // dissonant interval
+
+  dangerFilter.type = "lowpass";
+  dangerFilter.frequency.value = 200;
+  dangerFilter.Q.value = 2.0;
+
+  dangerGain.gain.value = 0.0; // starts silent, ramps up in danger state
+  dangerOsc1.connect(dangerFilter);
+  dangerOsc2.connect(dangerFilter);
+  dangerFilter.connect(dangerGain);
+  dangerGain.connect(masterGain);
+
+  dangerOsc1.start();
+  dangerOsc2.start();
+
+  // ── Combat layer: fast pulsing beat (activates during combat)
+  const combatOsc = audioCtx.createOscillator();
+  const combatGain = audioCtx.createGain();
+  const combatLFO = audioCtx.createOscillator();
+  const combatLFOGain = audioCtx.createGain();
+
+  combatOsc.type = "sawtooth";
+  combatOsc.frequency.value = 220; // A3
+  combatLFO.type = "square";
+  combatLFO.frequency.value = 4.0; // fast pulse — heartbeat-like
+  combatLFOGain.gain.value = 0.0; // starts silent
+
+  combatLFO.connect(combatLFOGain);
+  combatLFOGain.connect(combatGain.gain);
+  combatOsc.connect(combatGain);
+  combatGain.connect(masterGain);
+
+  combatOsc.start();
+  combatLFO.start();
+
+  // ── Boss layer: deep terrifying low drone (activates when boss is near)
+  const bossOsc1 = audioCtx.createOscillator();
+  const bossOsc2 = audioCtx.createOscillator();
+  const bossGain = audioCtx.createGain();
+  const bossFilter = audioCtx.createBiquadFilter();
+
+  bossOsc1.type = "sawtooth";
+  bossOsc1.frequency.value = 35; // very low
+  bossOsc2.type = "sawtooth";
+  bossOsc2.frequency.value = 37; // slightly detuned for unsettling effect
+
+  bossFilter.type = "lowpass";
+  bossFilter.frequency.value = 80;
+  bossFilter.Q.value = 3.0;
+
+  bossGain.gain.value = 0.0; // starts silent
+  bossOsc1.connect(bossFilter);
+  bossOsc2.connect(bossFilter);
+  bossFilter.connect(bossGain);
+  bossGain.connect(masterGain);
+
+  bossOsc1.start();
+  bossOsc2.start();
+
+  ambientNodes = { 
+    droneOsc1, droneOsc2, droneGain, droneFilter, lfo, 
+    masterGain,
+    dangerOsc1, dangerOsc2, dangerGain, dangerFilter,
+    combatOsc, combatGain, combatLFO, combatLFOGain,
+    bossOsc1, bossOsc2, bossGain, bossFilter,
+  };
+}
+
+function stopAmbientAudio() {
+  if (!ambientNodes) return;
+  try {
+    ambientNodes.droneOsc1.stop();
+    ambientNodes.droneOsc2.stop();
+    ambientNodes.lfo.stop();
+    ambientNodes.dangerOsc1.stop();
+    ambientNodes.dangerOsc2.stop();
+    ambientNodes.combatOsc.stop();
+    ambientNodes.combatLFO.stop();
+    ambientNodes.bossOsc1.stop();
+    ambientNodes.bossOsc2.stop();
+  } catch (e) {}
+  ambientNodes = null;
+  ambientStarted = false;
+}
+
+// ── Adaptive Audio State Manager ──
+// Determines which audio layer should be active based on game state
+function updateAudioState(dt) {
+  if (!ambientNodes || !audioCtx || !myPlayer) return;
+
+  const now = audioCtx.currentTime;
+  audioStateTimer += dt;
+
+  // Determine desired state
+  let desiredState = "explore";
+  
+  // Check if boss is alive and near
+  let bossNear = false;
+  let enemyNear = false;
+  let inCombat = false;
+
+  for (const e of worldState.enemies || []) {
+    const dx = e.pos.x - myPlayer.pos.x;
+    const dz = e.pos.z - myPlayer.pos.z;
+    const d = Math.sqrt(dx * dx + dz * dz);
+    if (e.isBoss && d < 20) { bossNear = true; }
+    if (d < 8) { enemyNear = true; }
+  }
+
+  // Check recent combat (HP changed recently or attacked recently)
+  if (typeof updateAudioState._lastHp !== "undefined") {
+    if (myPlayer.hp < updateAudioState._lastHp) {
+      audioStateTimer = 0; // reset timer — we're in combat
+    }
+  }
+  updateAudioState._lastHp = myPlayer.hp;
+
+  if (bossNear) desiredState = "boss";
+  else if (audioStateTimer < 5.0 && (enemyNear || myPlayer.hp < myPlayer.maxHp * 0.5)) desiredState = "combat";
+  else if (enemyNear) desiredState = "danger";
+  else desiredState = "explore";
+
+  // Smoothly transition gains
+  if (desiredState !== audioState) {
+    audioState = desiredState;
+    audioStateTimer = 0;
+  }
+
+  const rampTime = 2.0; // 2s smooth transition
+  const exploreVol = audioState === "explore" ? 0.04 : 0.02;
+  const dangerVol = audioState === "danger" ? 0.06 : 0.0;
+  const combatVol = audioState === "combat" ? 0.08 : 0.0;
+  const bossVol = audioState === "boss" ? 0.12 : 0.0;
+
+  ambientNodes.droneGain.gain.setTargetAtTime(exploreVol, now, rampTime);
+  ambientNodes.dangerGain.gain.setTargetAtTime(dangerVol, now, rampTime);
+  ambientNodes.bossGain.gain.setTargetAtTime(bossVol, now, rampTime);
+
+  // Combat layer: modulate gain with LFO for pulsing effect
+  if (audioState === "combat") {
+    ambientNodes.combatLFOGain.gain.setTargetAtTime(0.04, now, rampTime);
+    ambientNodes.combatGain.gain.setTargetAtTime(0.5, now, rampTime);
+  } else {
+    ambientNodes.combatLFOGain.gain.setTargetAtTime(0.0, now, rampTime);
+    ambientNodes.combatGain.gain.setTargetAtTime(0.0, now, rampTime);
+  }
+
+  // Update desktop audio state indicator
+  const indicator = document.getElementById("audio-state-indicator");
+  if (indicator) {
+    const stateInfo = {
+      explore: { text: "♪ Exploring", color: "#2ecc71" },
+      danger: { text: "♪ Danger Near", color: "#f39c12" },
+      combat: { text: "♪ Combat!", color: "#e74c3c" },
+      boss: { text: "♪ BOSS THEME", color: "#ff00ff" },
+    };
+    const info = stateInfo[audioState] || stateInfo.explore;
+    if (indicator.textContent !== info.text) {
+      indicator.textContent = info.text;
+      indicator.style.color = info.color;
+    }
+    indicator.style.display = "block";
+  }
+}
+
+// Random ambient cave sounds — drips, distant rumble, whispers, wind gusts, chain rattles, magic hums, torch crackles
+function maybePlayAmbientSound() {
+  if (!audioCtx || !ambientStarted) return;
+  const now = audioCtx.currentTime;
+  if (now - lastAmbientSound < 2.5) return; // min 2.5s between sounds
+  if (Math.random() > 0.006) return; // ~low probability per frame
+
+  lastAmbientSound = now;
+
+  // Connect through master gain if available
+  const dest = ambientNodes ? ambientNodes.masterGain : audioCtx.destination;
+
+  // 7 ambient sound types — more variety in exploration, fewer in combat
+  const numTypes = audioState === "combat" ? 3 : 7;
+  const soundType = Math.floor(Math.random() * numTypes);
+
+  if (soundType === 0) {
+    // Water drip — high pitched sine plink
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(dest);
+    osc.type = "sine";
+    const freq = 800 + Math.random() * 600;
+    osc.frequency.setValueAtTime(freq, now);
+    osc.frequency.exponentialRampToValueAtTime(freq * 0.5, now + 0.15);
+    gain.gain.setValueAtTime(0.03, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+    osc.start(now);
+    osc.stop(now + 0.3);
+  } else if (soundType === 1) {
+    // Distant rumble — short low burst
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(dest);
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(40 + Math.random() * 20, now);
+    gain.gain.setValueAtTime(0.02, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    osc.start(now);
+    osc.stop(now + 0.5);
+  } else if (soundType === 2) {
+    // Whisper — filtered noise burst (approximated with high square wave)
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(dest);
+    osc.type = "square";
+    osc.frequency.setValueAtTime(200 + Math.random() * 100, now);
+    filter.type = "bandpass";
+    filter.frequency.value = 300;
+    filter.Q.value = 5;
+    gain.gain.setValueAtTime(0.015, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+    osc.start(now);
+    osc.stop(now + 0.4);
+  } else if (soundType === 3) {
+    // Wind gust — filtered noise sweep (approximated with modulated sawtooth)
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(dest);
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(50, now);
+    filter.type = "bandpass";
+    filter.frequency.setValueAtTime(400, now);
+    filter.frequency.exponentialRampToValueAtTime(200, now + 1.5);
+    filter.Q.value = 1.5;
+    gain.gain.setValueAtTime(0.0, now);
+    gain.gain.linearRampToValueAtTime(0.025, now + 0.3);
+    gain.gain.linearRampToValueAtTime(0.015, now + 1.0);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 1.5);
+    osc.start(now);
+    osc.stop(now + 1.5);
+  } else if (soundType === 4) {
+    // Chain rattle — rapid metallic clicks
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.frequency.value = 2000;
+    filter.Q.value = 8;
+    const gain = audioCtx.createGain();
+    gain.gain.value = 0.02;
+    filter.connect(gain);
+    gain.connect(dest);
+    // Create 5-8 quick clicks
+    const numClicks = 5 + Math.floor(Math.random() * 4);
+    for (let i = 0; i < numClicks; i++) {
+      const osc = audioCtx.createOscillator();
+      osc.type = "square";
+      const t = now + i * 0.06 + Math.random() * 0.02;
+      osc.frequency.setValueAtTime(1500 + Math.random() * 500, t);
+      osc.frequency.exponentialRampToValueAtTime(800, t + 0.03);
+      const clickGain = audioCtx.createGain();
+      clickGain.gain.setValueAtTime(0.015, t);
+      clickGain.gain.exponentialRampToValueAtTime(0.001, t + 0.03);
+      osc.connect(filter);
+      osc.start(t);
+      osc.stop(t + 0.04);
+    }
+  } else if (soundType === 5) {
+    // Magic hum — ethereal sustained sine with slow vibrato
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const vibrato = audioCtx.createOscillator();
+    const vibratoGain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(dest);
+    vibrato.connect(vibratoGain);
+    vibratoGain.connect(osc.frequency);
+    osc.type = "sine";
+    const baseFreq = 440 + Math.random() * 220;
+    osc.frequency.value = baseFreq;
+    vibrato.type = "sine";
+    vibrato.frequency.value = 3.0;
+    vibratoGain.gain.value = 5;
+    gain.gain.setValueAtTime(0.0, now);
+    gain.gain.linearRampToValueAtTime(0.02, now + 0.3);
+    gain.gain.setValueAtTime(0.02, now + 0.5);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 1.0);
+    osc.start(now);
+    vibrato.start(now);
+    osc.stop(now + 1.0);
+    vibrato.stop(now + 1.0);
+  } else {
+    // Torch crackle — rapid tiny noise bursts (approximated with high-frequency clicks)
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = "highpass";
+    filter.frequency.value = 3000;
+    const gain = audioCtx.createGain();
+    gain.gain.value = 0.015;
+    filter.connect(gain);
+    gain.connect(dest);
+    const numCrackles = 8 + Math.floor(Math.random() * 8);
+    for (let i = 0; i < numCrackles; i++) {
+      const osc = audioCtx.createOscillator();
+      osc.type = "square";
+      const t = now + i * 0.04 + Math.random() * 0.03;
+      osc.frequency.setValueAtTime(3000 + Math.random() * 2000, t);
+      const clickGain = audioCtx.createGain();
+      clickGain.gain.setValueAtTime(0.008, t);
+      clickGain.gain.exponentialRampToValueAtTime(0.001, t + 0.02);
+      osc.connect(filter);
+      osc.start(t);
+      osc.stop(t + 0.025);
+    }
   }
 }
 
@@ -631,6 +1167,7 @@ function vrLogin() {
   selectedClass = document.getElementById("class-select").value || "warrior";
   document.getElementById("login-overlay").classList.add("hidden");
   document.getElementById("player-stats").style.display = "block";
+  startAmbientAudio();
   connect();
 }
 
@@ -732,6 +1269,11 @@ function updateVRHUD() {
   ctx.fillStyle = "#f1c40f";
   ctx.fillText(`Gold: ${myPlayer.gold}  Kills: ${myPlayer.kills||0}`, 24, 226);
   
+  // Dungeon floor depth
+  ctx.fillStyle = "#f39c12";
+  ctx.font = "bold 18px sans-serif";
+  ctx.fillText(`🏰 Floor: ${worldState.dungeonDepth || 1}  👹 ${worldState.enemyCount || 0} enemies`, 24, 248);
+  
   // Skills (1/2/3)
   if (myPlayer.skills) {
     ctx.fillStyle = "#fff";
@@ -757,17 +1299,115 @@ function updateVRHUD() {
     ctx.fillText(worldState.events[0].text.substring(0, 45), 24, 248);
   }
   
+  // Leaderboard panel (top-right)
+  if (leaderboardData && leaderboardData.length > 0) {
+    ctx.textAlign = "left";
+    ctx.fillStyle = "rgba(124, 92, 252, 0.3)";
+    ctx.fillRect(340, 110, 160, 120);
+    ctx.fillStyle = "#7C5CFC";
+    ctx.font = "bold 14px sans-serif";
+    ctx.fillText("LEADERBOARD", 348, 128);
+    ctx.font = "12px sans-serif";
+    leaderboardData.slice(0, 5).forEach((entry, i) => {
+      const y = 146 + i * 16;
+      ctx.fillStyle = entry.player_name === myPlayer?.name ? "#f1c40f" : "#fff";
+      const name = entry.player_name.substring(0, 12);
+      ctx.fillText(`${i+1}. ${name} K:${entry.kills} L:${entry.level}`, 348, y);
+    });
+  }
+  
+  // ── VR Minimap panel (top-right of VR HUD) ──
+  if (myPlayer) {
+    const mmX = 380, mmY = 110;
+    const mmSize = 120;
+    // Minimap background
+    ctx.fillStyle = "rgba(5, 8, 15, 0.9)";
+    ctx.fillRect(mmX, mmY, mmSize, mmSize);
+    ctx.strokeStyle = "rgba(100, 140, 200, 0.5)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(mmX, mmY, mmSize, mmSize);
+
+    // Draw walls in VR minimap (fog-gated)
+    const mmScale = mmSize / (MINIMAP_RANGE * 2) * minimapZoom;
+    function mmWorldToVr(wx, wz) {
+      const dx = (wx - myPlayer.pos.x) * mmScale + mmSize / 2;
+      const dz = (wz - myPlayer.pos.z) * mmScale + mmSize / 2;
+      return { x: mmX + dx, y: mmY + dz };
+    }
+    ctx.fillStyle = "rgba(80, 80, 100, 0.7)";
+    for (const w of worldState.walls || []) {
+      if (!isExplored(w.min.x + 0.5, w.min.z + 0.5)) continue;
+      const p1 = mmWorldToVr(w.min.x, w.min.z);
+      const p2 = mmWorldToVr(w.max.x, w.max.z);
+      const x = Math.min(p1.x, p2.x), y = Math.min(p1.y, p2.y);
+      const w2 = Math.abs(p2.x - p1.x), h2 = Math.abs(p2.y - p1.y);
+      if (x > mmX - 5 && x < mmX + mmSize + 5 && y > mmY - 5 && y < mmY + mmSize + 5) {
+        ctx.fillRect(x, y, Math.max(1, w2), Math.max(1, h2));
+      }
+    }
+    // Enemies on VR minimap
+    for (const enemy of worldState.enemies || []) {
+      if (!isExplored(enemy.pos.x, enemy.pos.z) && !enemy.isBoss) continue;
+      const p = mmWorldToVr(enemy.pos.x, enemy.pos.z);
+      if (p.x < mmX || p.x > mmX + mmSize || p.y < mmY || p.y > mmY + mmSize) continue;
+      ctx.fillStyle = enemy.isBoss ? "#ff00ff" : "#e74c3c";
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, enemy.isBoss ? 3 : 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Items on VR minimap
+    for (const item of worldState.items || []) {
+      if (!isExplored(item.pos.x, item.pos.z)) continue;
+      const p = mmWorldToVr(item.pos.x, item.pos.z);
+      if (p.x < mmX || p.x > mmX + mmSize || p.y < mmY || p.y > mmY + mmSize) continue;
+      ctx.fillStyle = "#f1c40f";
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Self arrow
+    const myP = mmWorldToVr(myPlayer.pos.x, myPlayer.pos.z);
+    ctx.fillStyle = "#2ecc71";
+    ctx.beginPath();
+    ctx.moveTo(myP.x, myP.y - 4);
+    ctx.lineTo(myP.x - 3, myP.y + 3);
+    ctx.lineTo(myP.x + 3, myP.y + 3);
+    ctx.closePath();
+    ctx.fill();
+    // Audio state indicator
+    const stateColors = { explore: "#2ecc71", danger: "#f39c12", combat: "#e74c3c", boss: "#ff00ff" };
+    ctx.fillStyle = stateColors[audioState] || "#aaa";
+    ctx.font = "bold 10px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(`♪ ${audioState.toUpperCase()}`, mmX + mmSize / 2, mmY - 4);
+  }
+
   vrHudMesh.material.map.needsUpdate = true;
 }
 
+// ── Leaderboard fetch ──
+let leaderboardData = [];
+async function fetchLeaderboard() {
+  try {
+    const resp = await fetch("/api/leaderboard?limit=10");
+    const data = await resp.json();
+    if (data.top) leaderboardData = data.top;
+    else if (Array.isArray(data)) leaderboardData = data;
+  } catch (e) { /* silent */ }
+}
+setInterval(fetchLeaderboard, 10000); // refresh every 10s
+fetchLeaderboard();
+
 // ── Login ──
 document.getElementById("join-btn").addEventListener("click", () => {
+  playSound("uiclick", 0.3);
   const name = document.getElementById("name-input").value.trim();
   if (name) myName = name;
   selectedClass = document.getElementById("class-select").value || "warrior";
   document.getElementById("login-overlay").classList.add("hidden");
   document.getElementById("player-stats").style.display = "block";
   lockPointer();
+  startAmbientAudio();
   connect();
 });
 
@@ -779,6 +1419,9 @@ document.addEventListener("keydown", (e) => {
   if (key === "1") { send({ type: "skill", skillIndex: 0 }); }
   if (key === "2") { send({ type: "skill", skillIndex: 1 }); }
   if (key === "3") { send({ type: "skill", skillIndex: 2 }); }
+  // Chat: Enter to open/focus, Escape to close
+  if (e.key === "Enter" && !chatOpen) { openChat(); e.preventDefault(); return; }
+  if (e.key === "Escape" && chatOpen) { closeChat(); e.preventDefault(); return; }
 });
 
 // ── VR Button ──
@@ -892,6 +1535,12 @@ function updateMovement(dt) {
         pos: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
         rot: { x: pitch, y: yaw, z: 0 },
       }});
+      // Footstep sound — every 0.35s while moving
+      const now = performance.now();
+      if (now - lastFootstepTime > 350) {
+        playSound("footstep", 0.15);
+        lastFootstepTime = now;
+      }
     }
   }
 }
@@ -1305,6 +1954,302 @@ function syncScene() {
   for (const [id, m] of meshes.items) { if (!activeItemIds.has(id)) { scene.remove(m); meshes.items.delete(id); } }
 }
 
+// ── Minimap (Expanded: fog-of-war, zoom, north indicator, boss alert, VR minimap) ──
+let minimapCanvas = null;
+let minimapCtx = null;
+let minimapZoom = 1.0; // 0.5 = zoomed out (wider area), 2.0 = zoomed in (less area)
+let minimapFogCanvas = null; // fog-of-war overlay canvas
+let minimapFogCtx = null;
+const MINIMAP_SIZE = 160;
+const MINIMAP_RANGE = 40; // world units visible in minimap at zoom 1.0
+const FOG_CELL_SIZE = 2.0; // world units per fog cell
+const FOG_GRID_SIZE = 60; // 60x60 fog cells covering 120x120 world units
+let minimapFogGrid = null; // Float32Array — 0 = unexplored, 1 = explored
+let minimapInitialized = false;
+
+function initMinimap() {
+  if (minimapCanvas) return;
+  minimapCanvas = document.createElement("canvas");
+  minimapCanvas.id = "minimap";
+  minimapCanvas.width = MINIMAP_SIZE;
+  minimapCanvas.height = MINIMAP_SIZE;
+  minimapCanvas.style.cssText = `
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    width: ${MINIMAP_SIZE}px;
+    height: ${MINIMAP_SIZE}px;
+    border: 2px solid rgba(100, 140, 200, 0.6);
+    border-radius: 8px;
+    background: rgba(5, 8, 15, 0.85);
+    pointer-events: none;
+    z-index: 500;
+    box-shadow: 0 0 8px rgba(0, 50, 100, 0.5);
+  `;
+  document.body.appendChild(minimapCanvas);
+  minimapCtx = minimapCanvas.getContext("2d");
+
+  // Fog-of-war grid
+  minimapFogGrid = new Float32Array(FOG_GRID_SIZE * FOG_GRID_SIZE);
+
+  // Zoom controls (+/- buttons)
+  const zoomInBtn = document.createElement("button");
+  zoomInBtn.textContent = "+";
+  zoomInBtn.style.cssText = `
+    position: fixed; top: ${MINIMAP_SIZE + 16}px; right: 12px;
+    width: 36px; height: 24px; border: 1px solid rgba(100,140,200,0.5);
+    border-radius: 4px; background: rgba(5,8,15,0.85); color: #6c8ccc;
+    font-size: 0.9rem; cursor: pointer; z-index: 500; pointer-events: auto;
+  `;
+  zoomInBtn.onclick = () => { minimapZoom = Math.min(3.0, minimapZoom * 1.25); };
+  document.body.appendChild(zoomInBtn);
+
+  const zoomOutBtn = document.createElement("button");
+  zoomOutBtn.textContent = "−";
+  zoomOutBtn.style.cssText = `
+    position: fixed; top: ${MINIMAP_SIZE + 42}px; right: 12px;
+    width: 36px; height: 24px; border: 1px solid rgba(100,140,200,0.5);
+    border-radius: 4px; background: rgba(5,8,15,0.85); color: #6c8ccc;
+    font-size: 0.9rem; cursor: pointer; z-index: 500; pointer-events: auto;
+  `;
+  zoomOutBtn.onclick = () => { minimapZoom = Math.max(0.3, minimapZoom / 1.25); };
+  document.body.appendChild(zoomOutBtn);
+
+  minimapInitialized = true;
+}
+
+function getMinimapScale() {
+  return MINIMAP_SIZE / (MINIMAP_RANGE * 2) * minimapZoom;
+}
+
+function worldToMinimap(wx, wz) {
+  if (!myPlayer) return { x: 0, y: 0 };
+  const cx = myPlayer.pos.x;
+  const cz = myPlayer.pos.z;
+  const scale = getMinimapScale();
+  const dx = (wx - cx) * scale + MINIMAP_SIZE / 2;
+  const dz = (wz - cz) * scale + MINIMAP_SIZE / 2;
+  return { x: dx, y: dz };
+}
+
+// ── Fog-of-War: mark cells around player as explored ──
+function updateFogOfWar() {
+  if (!minimapFogGrid || !myPlayer) return;
+  const visibilityRadius = 8.0; // world units visible around player
+  const px = myPlayer.pos.x;
+  const pz = myPlayer.pos.z;
+
+  // Mark cells within visibility as explored
+  const cellStartX = Math.floor((px - visibilityRadius) / FOG_CELL_SIZE) + FOG_GRID_SIZE / 2;
+  const cellEndX = Math.ceil((px + visibilityRadius) / FOG_CELL_SIZE) + FOG_GRID_SIZE / 2;
+  const cellStartZ = Math.floor((pz - visibilityRadius) / FOG_CELL_SIZE) + FOG_GRID_SIZE / 2;
+  const cellEndZ = Math.ceil((pz + visibilityRadius) / FOG_CELL_SIZE) + FOG_GRID_SIZE / 2;
+
+  for (let cz = Math.max(0, cellStartZ); cz < Math.min(FOG_GRID_SIZE, cellEndZ); cz++) {
+    for (let cx = Math.max(0, cellStartX); cx < Math.min(FOG_GRID_SIZE, cellEndX); cx++) {
+      // Check actual distance
+      const wx = (cx - FOG_GRID_SIZE / 2) * FOG_CELL_SIZE;
+      const wz = (cz - FOG_GRID_SIZE / 2) * FOG_CELL_SIZE;
+      const dx = wx - px, dz = wz - pz;
+      const d = Math.sqrt(dx * dx + dz * dz);
+      if (d < visibilityRadius) {
+        const idx = cz * FOG_GRID_SIZE + cx;
+        minimapFogGrid[idx] = Math.min(1.0, minimapFogGrid[idx] + 0.15);
+      }
+    }
+  }
+}
+
+// Convert world position to fog grid index
+function worldToFogGrid(wx, wz) {
+  const cx = Math.floor(wx / FOG_CELL_SIZE) + FOG_GRID_SIZE / 2;
+  const cz = Math.floor(wz / FOG_CELL_SIZE) + FOG_GRID_SIZE / 2;
+  return { cx, cz };
+}
+
+// Check if a world position is in explored fog area
+function isExplored(wx, wz) {
+  if (!minimapFogGrid) return true; // No fog system = show everything
+  const { cx, cz } = worldToFogGrid(wx, wz);
+  if (cx < 0 || cx >= FOG_GRID_SIZE || cz < 0 || cz >= FOG_GRID_SIZE) return false;
+  return minimapFogGrid[cz * FOG_GRID_SIZE + cx] > 0.1;
+}
+
+function updateMinimap() {
+  if (!minimapCtx || !myPlayer) return;
+
+  // Update fog-of-war
+  updateFogOfWar();
+
+  const ctx = minimapCtx;
+  ctx.clearRect(0, 0, MINIMAP_SIZE, MINIMAP_SIZE);
+
+  // Background
+  ctx.fillStyle = "rgba(5, 8, 15, 0.9)";
+  ctx.fillRect(0, 0, MINIMAP_SIZE, MINIMAP_SIZE);
+
+  // Grid lines
+  ctx.strokeStyle = "rgba(40, 60, 100, 0.3)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= MINIMAP_SIZE; i += 20) {
+    ctx.beginPath();
+    ctx.moveTo(i, 0);
+    ctx.lineTo(i, MINIMAP_SIZE);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, i);
+    ctx.lineTo(MINIMAP_SIZE, i);
+    ctx.stroke();
+  }
+
+  // Draw walls as thin rectangles (only in explored areas)
+  ctx.fillStyle = "rgba(80, 80, 100, 0.7)";
+  for (const w of worldState.walls || []) {
+    if (!isExplored(w.min.x + 0.5, w.min.z + 0.5)) continue; // Fog of war
+    const p1 = worldToMinimap(w.min.x, w.min.z);
+    const p2 = worldToMinimap(w.max.x, w.max.z);
+    const x = Math.min(p1.x, p2.x);
+    const y = Math.min(p1.y, p2.y);
+    const w2 = Math.abs(p2.x - p1.x);
+    const h2 = Math.abs(p2.y - p1.y);
+    if (x > -5 && x < MINIMAP_SIZE + 5 && y > -5 && y < MINIMAP_SIZE + 5) {
+      ctx.fillRect(x, y, Math.max(1, w2), Math.max(1, h2));
+    }
+  }
+
+  // Draw items as small gold dots (only in explored areas)
+  for (const item of worldState.items || []) {
+    if (!isExplored(item.pos.x, item.pos.z)) continue;
+    const p = worldToMinimap(item.pos.x, item.pos.z);
+    if (p.x < 0 || p.x > MINIMAP_SIZE || p.y < 0 || p.y > MINIMAP_SIZE) continue;
+    ctx.fillStyle = item.etype === "equipment" ? "#f39c12" : "#f1c40f";
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Draw enemies as red dots (boss = larger with pulsing ring)
+  let bossAlertActive = false;
+  for (const enemy of worldState.enemies || []) {
+    if (!isExplored(enemy.pos.x, enemy.pos.z) && !enemy.isBoss) continue;
+    const p = worldToMinimap(enemy.pos.x, enemy.pos.z);
+    if (p.x < 0 || p.x > MINIMAP_SIZE || p.y < 0 || p.y > MINIMAP_SIZE) continue;
+    if (enemy.isBoss) {
+      bossAlertActive = true;
+      // Pulsing ring around boss
+      const pulse = Math.sin(Date.now() * 0.005) * 2 + 6;
+      ctx.strokeStyle = "rgba(231, 76, 60, 0.5)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, pulse, 0, Math.PI * 2);
+      ctx.stroke();
+      // Boss dot
+      ctx.fillStyle = "#ff00ff";
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#c0392b";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = "#e74c3c";
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // Draw other players as blue dots
+  for (const player of worldState.players || []) {
+    if (player.id === pid) continue;
+    const p = worldToMinimap(player.pos.x, player.pos.z);
+    if (p.x < 0 || p.x > MINIMAP_SIZE || p.y < 0 || p.y > MINIMAP_SIZE) continue;
+    ctx.fillStyle = "#3498db";
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Draw self as green arrow pointing in facing direction
+  const myP = worldToMinimap(myPlayer.pos.x, myPlayer.pos.z);
+  ctx.save();
+  ctx.translate(myP.x, myP.y);
+  ctx.rotate(myPlayer.rot.y);
+  ctx.fillStyle = "#2ecc71";
+  ctx.beginPath();
+  ctx.moveTo(0, -5);   // tip
+  ctx.lineTo(-3, 3);   // left
+  ctx.lineTo(3, 3);     // right
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = "#27ae60";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
+
+  // ── Fog-of-war overlay: darken unexplored areas ──
+  ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
+  // Create a fog mask: iterate visible cells and darken non-explored ones
+  const cellScale = (FOG_CELL_SIZE * getMinimapScale());
+  for (let cz = 0; cz < FOG_GRID_SIZE; cz++) {
+    for (let cx = 0; cx < FOG_GRID_SIZE; cx++) {
+      const fogVal = minimapFogGrid[cz * FOG_GRID_SIZE + cx];
+      if (fogVal >= 0.9) continue; // Fully explored — no fog
+      const wx = (cx - FOG_GRID_SIZE / 2) * FOG_CELL_SIZE;
+      const wz = (cz - FOG_GRID_SIZE / 2) * FOG_CELL_SIZE;
+      const p = worldToMinimap(wx, wz);
+      if (p.x < -cellScale || p.x > MINIMAP_SIZE + cellScale || p.y < -cellScale || p.y > MINIMAP_SIZE + cellScale) continue;
+      const alpha = (1.0 - fogVal) * 0.6;
+      ctx.fillStyle = `rgba(0, 0, 0, ${alpha.toFixed(2)})`;
+      ctx.fillRect(p.x, p.y, cellScale + 1, cellScale + 1);
+    }
+  }
+
+  // ── North indicator (small N arrow at top) ──
+  ctx.save();
+  ctx.translate(MINIMAP_SIZE / 2, 8);
+  ctx.fillStyle = "rgba(100, 180, 255, 0.8)";
+  ctx.font = "bold 10px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("N", 0, 8);
+  // Small triangle pointing up
+  ctx.beginPath();
+  ctx.moveTo(0, -2);
+  ctx.lineTo(-3, 2);
+  ctx.lineTo(3, 2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  // ── Boss alert text at bottom ──
+  if (bossAlertActive) {
+    ctx.fillStyle = "rgba(255, 0, 255, 0.9)";
+    ctx.font = "bold 9px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("⚠ BOSS NEARBY", MINIMAP_SIZE / 2, MINIMAP_SIZE - 4);
+  }
+
+  // ── Zoom indicator ──
+  ctx.fillStyle = "rgba(100, 140, 200, 0.5)";
+  ctx.font = "8px sans-serif";
+  ctx.textAlign = "right";
+  ctx.fillText(`${minimapZoom.toFixed(1)}x`, MINIMAP_SIZE - 4, MINIMAP_SIZE - 4);
+
+  // Border
+  ctx.strokeStyle = "rgba(100, 140, 200, 0.6)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(0, 0, MINIMAP_SIZE, MINIMAP_SIZE);
+}
+
+// Initialize minimap when player joins
+const minimapObserver = new MutationObserver(() => {
+  const overlay = document.getElementById("login-overlay");
+  if (overlay && overlay.classList.contains("hidden") && !minimapCanvas) {
+    initMinimap();
+  }
+});
+minimapObserver.observe(document.getElementById("login-overlay"), { attributes: true, attributeFilter: ["class"] });
+
 // ── Loop ──
 function animate() {
   const dt = clock.getDelta();
@@ -1325,6 +2270,9 @@ function animate() {
   syncScene();
   updateHUD();
   updateVRHUD();
+  updateAudioState(dt);
+  maybePlayAmbientSound();
+  updateMinimap();
   
   // Apply screen shake to camera
   if (shakeIntensity > 0) {
@@ -1348,5 +2296,92 @@ window.addEventListener("resize", () => {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
+
+// ── Chat System ──
+let chatOpen = false;
+const chatPanel = document.getElementById("chat-panel");
+const chatLog = document.getElementById("chat-log");
+const chatInput = document.getElementById("chat-input");
+const chatSendBtn = document.getElementById("chat-send");
+const chatToggleBtn = document.getElementById("chat-toggle");
+
+function openChat() {
+  chatOpen = true;
+  chatPanel.style.display = "flex";
+  chatToggleBtn.style.display = "none";
+  chatInput.focus();
+  if (document.pointerLockElement) document.exitPointerLock();
+}
+
+function closeChat() {
+  chatOpen = false;
+  chatPanel.style.display = "none";
+  chatInput.blur();
+  chatInput.value = "";
+}
+
+function sendChatMessage() {
+  const text = chatInput.value.trim();
+  if (text.length > 0 && ws && ws.readyState === WebSocket.OPEN) {
+    send({ type: "chat", text });
+  }
+  chatInput.value = "";
+  // Keep focus for rapid chat; user can Esc to close
+  chatInput.focus();
+}
+
+function handleChatMessage(data) {
+  const div = document.createElement("div");
+  div.className = "chat-msg";
+  const nameSpan = document.createElement("span");
+  nameSpan.className = `chat-name ${data.class || "warrior"}`;
+  nameSpan.textContent = `${data.name} (Lv.${data.level || 1}):`;
+  const textSpan = document.createElement("span");
+  textSpan.className = "chat-text";
+  textSpan.textContent = ` ${data.text}`;
+  div.appendChild(nameSpan);
+  div.appendChild(textSpan);
+  chatLog.appendChild(div);
+  // Auto-scroll to bottom
+  chatLog.scrollTop = chatLog.scrollHeight;
+  // Keep last 50 messages
+  while (chatLog.children.length > 50) chatLog.removeChild(chatLog.firstChild);
+}
+
+// Chat send button
+if (chatSendBtn) chatSendBtn.addEventListener("click", sendChatMessage);
+
+// Chat input: Enter sends, Escape closes
+if (chatInput) {
+  chatInput.addEventListener("keydown", (e) => {
+    e.stopPropagation(); // Prevent game keybinds while typing
+    if (e.key === "Enter") { sendChatMessage(); e.preventDefault(); }
+    if (e.key === "Escape") { closeChat(); e.preventDefault(); }
+  });
+  // Prevent game controls from triggering while typing
+  chatInput.addEventListener("keypress", (e) => { e.stopPropagation(); });
+  chatInput.addEventListener("keyup", (e) => { e.stopPropagation(); });
+}
+
+// Chat toggle button (shown when chat is closed but game is active)
+if (chatToggleBtn) {
+  chatToggleBtn.addEventListener("click", openChat);
+}
+
+// Show chat toggle after joining game
+const chatShowObserver = new MutationObserver(() => {
+  const loginOverlay = document.getElementById("login-overlay");
+  if (loginOverlay && loginOverlay.classList.contains("hidden")) {
+    chatToggleBtn.style.display = "block";
+    // Add a welcome system message
+    if (chatLog.children.length === 0) {
+      const sysMsg = document.createElement("div");
+      sysMsg.className = "chat-msg chat-sys";
+      sysMsg.textContent = "Press Enter to chat. Escape to close.";
+      chatLog.appendChild(sysMsg);
+    }
+  }
+});
+chatShowObserver.observe(document.getElementById("login-overlay"), { attributes: true, attributeFilter: ["class"] });
 
 console.log("VR RPG Online client loaded");
