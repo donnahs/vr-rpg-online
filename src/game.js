@@ -47,8 +47,8 @@ const EQUIPMENT_TYPES = {
   },
 };
 
-function rollRarity() {
-  const roll = Math.random();
+function rollRarity(rng = Math.random) {
+  const roll = rng();
   let cum = 0;
   for (const [name, tier] of Object.entries(ITEM_TIERS)) {
     cum += tier.chance;
@@ -57,9 +57,28 @@ function rollRarity() {
   return "common";
 }
 
+function setEquipmentRarity(equipment, rarity, bonusIncrease = 0) {
+  const tier = ITEM_TIERS[rarity];
+  const def = EQUIPMENT_TYPES[equipment.slot];
+  if (!tier || !def) return equipment;
+
+  equipment.rarity = rarity;
+  equipment.color = tier.color;
+  const nameIndex = Math.min(
+    Object.keys(ITEM_TIERS).indexOf(rarity),
+    def.names.length - 1
+  );
+  equipment.name = `${def.names[nameIndex]} (${rarity})`;
+
+  const statKey = Object.keys(equipment.bonus || {})[0];
+  if (statKey && bonusIncrease) equipment.bonus[statKey] += bonusIncrease;
+  return equipment;
+}
+
 function generateEquipment(type, rng = Math.random) {
   const def = EQUIPMENT_TYPES[type];
-  const rarity = rollRarity();
+  if (!def) throw new Error(`Unknown equipment type: ${type}`);
+  const rarity = rollRarity(rng);
   const tier = ITEM_TIERS[rarity];
   const [min, max] = tier.statRange;
   const bonus = Math.floor(rng() * (max - min + 1)) + min;
@@ -198,6 +217,8 @@ class Player {
     this.maxMana = (this.class === "warrior" ? 30 : this.class === "rogue" ? 50 : 100) + (this.int + this.getEquipBonus("int")) * 10;
     this.critChance = Math.min((this.dex + rBonus) * 0.5, 35);
     this.dodgeChance = Math.min((this.dex + rBonus) * 0.3, 25);
+    this.hp = Math.min(this.hp, this.maxHp);
+    this.mana = Math.min(this.mana, this.maxMana);
   }
   
   equipItem(item) {
@@ -247,12 +268,10 @@ class Player {
     };
   }
   
-  getMeleeDamage() {
+  getMeleeDamage(isCrit = Math.random() * 100 < this.critChance) {
     const strBonus = this.getEquipBonus("str");
     let dmg = 15 + this.level * 2 + (this.str + strBonus) * 2;
-    if (Math.random() * 100 < this.critChance) {
-      dmg *= this.critMult;
-    }
+    if (isCrit) dmg *= this.critMult;
     return Math.floor(dmg);
   }
   
@@ -266,12 +285,24 @@ class Player {
   }
   
   takeDamage(amount) {
-    // Apply damage reduction from buffs
+    const now = Date.now();
+    this.buffs = this.buffs.filter((b) => !b.expiresAt || b.expiresAt > now);
+
+    let remaining = Math.max(0, amount);
+    for (const buff of this.buffs) {
+      if (!buff.absorb || remaining <= 0) continue;
+      const absorbed = Math.min(buff.absorb, remaining);
+      buff.absorb -= absorbed;
+      remaining -= absorbed;
+    }
+    this.buffs = this.buffs.filter((b) => !Object.hasOwn(b, "absorb") || b.absorb > 0);
+
+    // Apply percentage reduction after absorb shields.
     let reduction = 0;
     for (const b of this.buffs) {
       if (b.type === "shield") reduction += b.reduction || 0;
     }
-    const actual = Math.floor(amount * (1 - Math.min(reduction, 0.9)));
+    const actual = Math.floor(remaining * (1 - Math.min(reduction, 0.9)));
     this.hp = Math.max(0, this.hp - actual);
     return actual;
   }
@@ -625,16 +656,10 @@ class GameWorld {
         const equip = generateEquipment(etype, this.rng);
         // Depth-based rarity boost: chance to upgrade rarity on deeper floors
         if (this.dungeonDepth >= 3 && equip.rarity === "common" && this.rng() < depthBias) {
-          equip.rarity = "uncommon";
-          equip.color = ITEM_TIERS.uncommon.color;
-          const statKey = Object.keys(equip.bonus)[0];
-          if (statKey) equip.bonus[statKey] += 2;
+          setEquipmentRarity(equip, "uncommon", 2);
         }
         if (this.dungeonDepth >= 5 && equip.rarity === "uncommon" && this.rng() < depthBias * 0.5) {
-          equip.rarity = "rare";
-          equip.color = ITEM_TIERS.rare.color;
-          const statKey = Object.keys(equip.bonus)[0];
-          if (statKey) equip.bonus[statKey] += 3;
+          setEquipmentRarity(equip, "rare", 3);
         }
         item = new Item(`item_${Date.now()}_${i}`, x, z, "equipment", 0);
         item.equipment = equip;
@@ -702,9 +727,9 @@ class GameWorld {
         e.pos.x += (dx / d) * s;
         e.pos.z += (dz / d) * s;
       } else if (now - e.lastAttack > e.attackCooldown) {
-        e.target.hp -= e.damage;
+        const actualDamage = e.target.takeDamage(e.damage);
         e.lastAttack = now;
-        this._addEvent(`${e.etype.charAt(0).toUpperCase() + e.etype.slice(1)} hit ${e.target.name} for ${e.damage}!`);
+        this._addEvent(`${e.etype.charAt(0).toUpperCase() + e.etype.slice(1)} hit ${e.target.name} for ${actualDamage}!`);
         if (e.target.hp <= 0) {
           e.target.hp = 0;
           this._addEvent(`${e.target.name} was slain by ${e.etype}!`);
@@ -740,8 +765,8 @@ class GameWorld {
     
     // Check dodge (enemies can't dodge yet, but players can)
     // Get damage based on class/stats
-    let damage = p.getMeleeDamage();
-    let isCrit = false;
+    const isCrit = Math.random() * 100 < p.critChance;
+    let damage = p.getMeleeDamage(isCrit);
     let range = 3.0;
     
     // Bow shots are ranged
@@ -762,9 +787,6 @@ class GameWorld {
       if (d < nearestDist) { nearest = e; nearestDist = d; }
     }
     if (nearest) {
-      // Check crit
-      if (Math.random() * 100 < p.critChance) isCrit = true;
-      
       nearest.hp -= damage;
       const critText = isCrit ? " CRIT!" : "";
       const styleText = attackStyle !== "light" ? ` [${attackStyle.toUpperCase()}]` : "";
@@ -812,12 +834,7 @@ class GameWorld {
             const etype = equipTypes[i];
             const item = new Item(`boss_drop_${Date.now()}_${i}`, lootPos.x + (i-1)*1.5, lootPos.z, "equipment", 0);
             const equip = generateEquipment(etype, this.rng);
-            equip.rarity = "epic"; // Guaranteed epic
-            equip.color = "#9b59b6";
-            const bonusKeys = Object.keys(equip.bonus);
-            if (bonusKeys.length > 0) {
-              equip.bonus[bonusKeys[0]] += 5; // Extra bonus for boss loot
-            }
+            setEquipmentRarity(equip, "epic", 5); // Guaranteed epic
             item.equipment = equip;
             item.name = equip.name;
             item.color = equip.color;
@@ -1068,4 +1085,7 @@ class GameWorld {
   }
 }
 
-module.exports = { GameWorld, Vec3, dist, Player, Enemy, Item };
+module.exports = {
+  GameWorld, Vec3, dist, Player, Enemy, Item,
+  ITEM_TIERS, EQUIPMENT_TYPES, rollRarity, generateEquipment, setEquipmentRarity,
+};

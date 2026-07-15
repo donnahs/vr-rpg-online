@@ -5,7 +5,8 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "check": "node --check src/game.js && node --check src/server.js && node --check public/app.js"
+    "check": "node --check src/game.js && node --check src/server.js && node --check public/app.js",
+    "test": "npm run check && node tests/dungeon-gen-test.js && node tests/chat-and-dash-test.js && node tests/audio-minimap-test.js && node tests/dungeon-progression-test.js && node tests/combat-equipment-test.js && node tests/webxr-review.js"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",
