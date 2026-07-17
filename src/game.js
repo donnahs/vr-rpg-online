@@ -419,6 +419,8 @@ class GameWorld {
     this.dungeonSize = 20;
     this.walls = [];
     this.spawnPoints = [];
+    this.dungeonDimensions = { width: 0, height: 0, tileSize: TILE_SIZE };
+    this.dungeonRevision = 0;
     this.lastTick = Date.now();
     this.dungeonDepth = 1;
     this._floorCleared = false;
@@ -484,13 +486,18 @@ class GameWorld {
   }
 
   _generateDungeon() {
-    const gridW = 30, gridH = 30;
+    // Layouts become broader and gain more rooms with depth, but stay capped so
+    // world snapshots remain small enough for the 20 Hz multiplayer broadcast.
+    const depthGrowth = Math.min(Math.max(this.dungeonDepth - 1, 0), 6);
+    const gridW = 30 + depthGrowth * 2;
+    const gridH = 30 + depthGrowth * 2;
     // 0=void, 1=floor, 2=wall
     const grid = Array(gridH).fill(null).map(() => Array(gridW).fill(0));
     this._rooms = [];
     this._floorCells = [];
 
-    const numRooms = 5 + Math.floor(this.rng() * 4); // 5-8 rooms
+    const baseRooms = Math.min(5 + Math.floor((this.dungeonDepth - 1) / 2), 9);
+    const numRooms = baseRooms + Math.floor(this.rng() * 4);
     const maxAttempts = 200;
 
     // ── Place rooms ──
@@ -525,6 +532,31 @@ class GameWorld {
           placed = true;
         }
       }
+    }
+
+    // Give rooms gameplay meaning. The farthest room from the start is always
+    // the boss room, preventing bosses from appearing beside the player spawn.
+    if (this._rooms.length > 0) {
+      const startRoom = this._rooms[0];
+      startRoom.role = "start";
+      let bossRoom = startRoom;
+      let farthestDistanceSq = -1;
+      for (const room of this._rooms.slice(1)) {
+        const dx = room.cx - startRoom.cx;
+        const dy = room.cy - startRoom.cy;
+        const distanceSq = dx * dx + dy * dy;
+        if (distanceSq > farthestDistanceSq) {
+          farthestDistanceSq = distanceSq;
+          bossRoom = room;
+        }
+      }
+      bossRoom.role = "boss";
+
+      const unassignedRooms = this._rooms.filter((room) => !room.role);
+      if (unassignedRooms.length > 0) {
+        unassignedRooms[Math.floor(this.rng() * unassignedRooms.length)].role = "treasure";
+      }
+      for (const room of this._rooms) room.role ||= "combat";
     }
 
     // ── Connect rooms with L-shaped corridors ──
@@ -590,12 +622,18 @@ class GameWorld {
     }
 
     // ── Spawn points: room centers ──
-    this.spawnPoints = this._rooms.map(r =>
+    const startRooms = this._rooms.filter((room) => room.role === "start");
+    const otherRooms = this._rooms.filter((room) => room.role !== "start" && room.role !== "boss");
+    this.spawnPoints = [...startRooms, ...otherRooms].map(r =>
       Vec3(r.cx * TILE_SIZE, 1.6, r.cy * TILE_SIZE)
     );
     if (this.spawnPoints.length === 0) {
       this.spawnPoints = [Vec3(0, 1.6, 0)];
     }
+
+    this.dungeonDimensions = { width: gridW, height: gridH, tileSize: TILE_SIZE };
+    this.dungeonSize = Math.max(gridW, gridH) * TILE_SIZE;
+    this.dungeonRevision += 1;
   }
 
   _spawnEnemies(count) {
@@ -612,10 +650,10 @@ class GameWorld {
 
   _spawnBoss() {
     if (this._floorCells.length === 0) return;
-    // Spawn boss in the largest room (last generated)
-    const cell = this._floorCells[Math.floor(this.rng() * this._floorCells.length)];
-    const x = (cell.x + 0.5) * TILE_SIZE;
-    const z = (cell.y + 0.5) * TILE_SIZE;
+    const bossRoom = this._rooms.find((room) => room.role === "boss");
+    const fallbackCell = this._floorCells[Math.floor(this.rng() * this._floorCells.length)];
+    const x = bossRoom ? bossRoom.cx * TILE_SIZE : (fallbackCell.x + 0.5) * TILE_SIZE;
+    const z = bossRoom ? bossRoom.cy * TILE_SIZE : (fallbackCell.y + 0.5) * TILE_SIZE;
     const boss = new Enemy("boss_1", x, z, "demon", true, this.dungeonDepth);
     boss.patrolCenter = Vec3(x, 0.5, z);
     this.enemies.set(boss.id, boss);
@@ -1080,6 +1118,10 @@ class GameWorld {
       leaderboard,
       dungeonSize: this.dungeonSize,
       dungeonDepth: this.dungeonDepth,
+      dungeonSeed: this.seed,
+      dungeonRevision: this.dungeonRevision,
+      dungeonDimensions: this.dungeonDimensions,
+      rooms: this._rooms.map(({ x, y, w, h, cx, cy, role }) => ({ x, y, w, h, cx, cy, role })),
       enemyCount: this.enemies.size,
     };
   }

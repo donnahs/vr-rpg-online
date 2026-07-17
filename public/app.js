@@ -1881,10 +1881,29 @@ function syncScene() {
   // Find self
   myPlayer = worldState.players.find(p => p.id === pid) || null;
 
-  // Walls (static, only add new ones)
+  // The generated grid lives in positive X/Z coordinates. Resize and centre
+  // the visual floor from serialized dimensions so every tile remains above
+  // the floor as deeper layouts grow.
+  const tileSize = worldState.dungeonDimensions?.tileSize || 2;
+  const dungeonWidth = (worldState.dungeonDimensions?.width || 40) * tileSize;
+  const dungeonHeight = (worldState.dungeonDimensions?.height || 40) * tileSize;
+  floor.scale.set(dungeonWidth / 80, dungeonHeight / 80, 1);
+  floor.position.set(dungeonWidth / 2, 0, dungeonHeight / 2);
+
+  // Walls are static within a floor, but must be reconciled when progression
+  // replaces the layout. Without cleanup, stale walls survive every descent.
+  const activeWallIds = new Set();
   for (const w of worldState.walls || []) {
     const wid = `${w.min.x},${w.min.z}`;
+    activeWallIds.add(wid);
     getOrCreate("walls", wid, () => createWallMesh(w));
+  }
+  for (const [id, mesh] of meshes.walls) {
+    if (!activeWallIds.has(id)) {
+      scene.remove(mesh);
+      mesh.geometry.dispose();
+      meshes.walls.delete(id);
+    }
   }
 
   // Players
