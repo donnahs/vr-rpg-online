@@ -194,6 +194,7 @@ class Player {
       ring: null,
     };
     this.kills = 0;
+    this.deaths = Number(dbChar?.deaths) || 0;
     this.lastUpdate = Date.now();
     this.connectedAt = Date.now();
     this.color = base.color;
@@ -248,6 +249,7 @@ class Player {
       hp: this.hp, maxHp: this.maxHp,
       mana: this.mana, maxMana: this.maxMana,
       level: this.level, xp: this.xp, gold: this.gold,
+      kills: this.kills, deaths: this.deaths,
       str: this.str, dex: this.dex, int: this.int, vit: this.vit,
       critChance: this.critChance, dodgeChance: this.dodgeChance,
       skills: this.skills.map((s, i) => ({
@@ -738,6 +740,31 @@ class GameWorld {
     p.lastUpdate = Date.now();
   }
 
+  respawnPlayer(pid, killer = "the dungeon") {
+    const p = this.players.get(pid);
+    if (!p || this.spawnPoints.length === 0) return null;
+
+    const spawnIndex = p.id.length % this.spawnPoints.length;
+    const spawn = this.spawnPoints[spawnIndex];
+    p.deaths += 1;
+    p.pos = Vec3(spawn.x, spawn.y, spawn.z);
+    p.hp = p.maxHp;
+    p.mana = p.maxMana;
+    p.buffs = [];
+    p.stealth = false;
+
+    // A respawned player must not remain attached to an enemy's old chase state.
+    for (const enemy of this.enemies.values()) {
+      if (enemy.target === p) {
+        enemy.target = null;
+        enemy.state = "patrol";
+      }
+    }
+
+    this._addEvent(`${p.name} respawned at the sanctuary after falling to ${killer}.`);
+    return { player: p, spawn: Vec3(spawn.x, spawn.y, spawn.z), deaths: p.deaths };
+  }
+
   tick() {
     const now = Date.now();
     this.lastTick = now;
@@ -769,11 +796,10 @@ class GameWorld {
         e.lastAttack = now;
         this._addEvent(`${e.etype.charAt(0).toUpperCase() + e.etype.slice(1)} hit ${e.target.name} for ${actualDamage}!`);
         if (e.target.hp <= 0) {
-          e.target.hp = 0;
-          this._addEvent(`${e.target.name} was slain by ${e.etype}!`);
-          const idx = (e.target.id.length) % this.spawnPoints.length;
-          e.target.pos = Vec3(this.spawnPoints[idx].x, this.spawnPoints[idx].y, this.spawnPoints[idx].z);
-          e.target.hp = e.target.maxHp;
+          const slainPlayer = e.target;
+          slainPlayer.hp = 0;
+          this._addEvent(`${slainPlayer.name} was slain by ${e.etype}!`);
+          this.respawnPlayer(slainPlayer.id, e.etype);
         }
       }
     } else if (e.state === "patrol") {

@@ -372,6 +372,7 @@ function updateHUD() {
   document.getElementById("p-gold").textContent = myPlayer.gold;
   document.getElementById("p-xp").textContent = myPlayer.xp;
   document.getElementById("p-kills").textContent = myPlayer.kills || 0;
+  document.getElementById("p-deaths").textContent = myPlayer.deaths || 0;
   document.getElementById("player-stats").style.display = "block";
 
   // Dungeon progression display
@@ -1267,7 +1268,7 @@ function updateVRHUD() {
   
   // Gold / Kills
   ctx.fillStyle = "#f1c40f";
-  ctx.fillText(`Gold: ${myPlayer.gold}  Kills: ${myPlayer.kills||0}`, 24, 226);
+  ctx.fillText(`Gold: ${myPlayer.gold}  Kills: ${myPlayer.kills||0}  Deaths: ${myPlayer.deaths||0}`, 24, 226);
   
   // Dungeon floor depth
   ctx.fillStyle = "#f39c12";

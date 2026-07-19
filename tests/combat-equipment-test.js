@@ -94,6 +94,41 @@ assert(critResult.crit === true, "Forced critical hit is reported as critical");
 assert(critResult.damage === Math.floor(normalDamage * striker.critMult), "Critical multiplier is applied exactly once", `normal=${normalDamage}, crit=${critResult.damage}`);
 assert(victim.hp === 9999 - critResult.damage, "Target HP loss equals reported damage");
 
+console.log("\nTest 7: Lethal enemy attacks perform a complete authoritative respawn");
+const respawnWorld = new GameWorld(303);
+respawnWorld.enemies.clear();
+const fallen = respawnWorld.addPlayer("fallen-player", "Fallen", "mage");
+fallen.hp = 1;
+fallen.mana = 0;
+fallen.buffs = [{ type: "shield", reduction: 0.2, expiresAt: Date.now() + 10000 }];
+fallen.stealth = true;
+fallen.cooldowns[0] = Date.now() + 5000;
+fallen.gold = 77;
+const cooldownBeforeDeath = fallen.cooldowns[0];
+const killer = new Enemy("killer", fallen.pos.x, fallen.pos.z, "orc");
+killer.damage = 100;
+killer.lastAttack = 0;
+const watcher = new Enemy("watcher", fallen.pos.x + 10, fallen.pos.z, "goblin");
+watcher.target = fallen;
+watcher.state = "chase";
+respawnWorld.enemies.set(killer.id, killer);
+respawnWorld.enemies.set(watcher.id, watcher);
+respawnWorld._updateEnemy(killer, Date.now());
+const onSpawnPoint = respawnWorld.spawnPoints.some((spawn) =>
+  spawn.x === fallen.pos.x && spawn.y === fallen.pos.y && spawn.z === fallen.pos.z
+);
+assert(fallen.deaths === 1, "Death count increments exactly once", `deaths=${fallen.deaths}`);
+assert(fallen.hp === fallen.maxHp && fallen.mana === fallen.maxMana, "Respawn fully restores HP and mana", `HP=${fallen.hp}, mana=${fallen.mana}`);
+assert(fallen.buffs.length === 0 && fallen.stealth === false, "Respawn clears temporary combat state");
+assert(onSpawnPoint, "Respawn moves the player to a valid dungeon spawn point");
+assert(killer.target === null && watcher.target === null, "All enemies release the respawned player target");
+assert(killer.state === "patrol" && watcher.state === "patrol", "Released enemies return to patrol");
+assert(fallen.cooldowns[0] === cooldownBeforeDeath && fallen.gold === 77, "Permanent state and cooldowns survive death");
+const serializedFallen = respawnWorld.serialize().players.find((player) => player.id === fallen.id);
+assert(serializedFallen.deaths === 1, "Serialized player state exposes death count");
+assert(respawnWorld.events.some((event) => event.text.includes("was slain by orc")), "World records the death event");
+assert(respawnWorld.events.some((event) => event.text.includes("respawned at the sanctuary")), "World records the respawn event");
+
 console.log(`\n=== Results: ${passed} passed, ${failed} failed ===`);
 if (failed > 0) {
   console.log("❌ REGRESSION TESTS FAILED");
