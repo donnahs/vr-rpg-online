@@ -28,15 +28,15 @@ async function getAccountByUsername(username) {
 async function createCharacter(accountId, name, charClass, stats = {}) {
   const base = {
     str: 8, dex: 4, int_stat: 3, vit: 7,
-    max_hp: 180, max_mana: 30,
+    max_hp: 180, max_mana: 30, deaths: 0,
     ...stats,
   };
   const [result] = await POOL.execute(
     `INSERT INTO characters
-      (account_id, name, class, str, dex, int_stat, vit, max_hp, max_mana, hp, mana)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (account_id, name, class, str, dex, int_stat, vit, max_hp, max_mana, hp, mana, deaths)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [accountId, name, charClass, base.str, base.dex, base.int_stat, base.vit,
-     base.max_hp, base.max_mana, base.max_hp, base.max_mana]
+     base.max_hp, base.max_mana, base.max_hp, base.max_mana, base.deaths]
   );
   return result.insertId;
 }
@@ -55,11 +55,11 @@ async function saveCharacter(charId, data) {
   await POOL.execute(
     `UPDATE characters SET
       level = ?, xp = ?, gold = ?, hp = ?, max_hp = ?, mana = ?, max_mana = ?,
-      str = ?, dex = ?, int_stat = ?, vit = ?,
+      str = ?, dex = ?, int_stat = ?, vit = ?, deaths = ?,
       pos_x = ?, pos_y = ?, pos_z = ?, is_online = ?, last_saved = NOW()
      WHERE id = ?`,
     [data.level, data.xp, data.gold, data.hp, data.maxHp, data.mana, data.maxMana,
-     data.str, data.dex, data.int, data.vit,
+     data.str, data.dex, data.int, data.vit, data.deaths || 0,
      data.pos?.x || 0, data.pos?.y || 1.6, data.pos?.z || 0,
      data.isOnline ? 1 : 0, charId]
   );

@@ -206,7 +206,7 @@ wss.on("connection", (ws, req) => {
       mysql.saveCharacter(ws._charId, {
         name: p.name, class: p.class, level: p.level, xp: p.xp, gold: p.gold,
         hp: p.hp, maxHp: p.maxHp, mana: p.mana, maxMana: p.maxMana,
-        str: p.str, dex: p.dex, int: p.int, vit: p.vit,
+        str: p.str, dex: p.dex, int: p.int, vit: p.vit, deaths: p.deaths || 0,
         pos: p.pos, isOnline: false,
       }).catch(() => {});
       mysql.setCharacterOnline(ws._charId, false).catch(() => {});
@@ -232,7 +232,7 @@ setInterval(() => {
         mysql.saveCharacter(ws._charId, {
           name: p.name, class: p.class, level: p.level, xp: p.xp, gold: p.gold,
           hp: p.hp, maxHp: p.maxHp, mana: p.mana, maxMana: p.maxMana,
-          str: p.str, dex: p.dex, int: p.int, vit: p.vit,
+          str: p.str, dex: p.dex, int: p.int, vit: p.vit, deaths: p.deaths || 0,
           pos: p.pos, isOnline: true,
         }).catch(() => {});
       }
